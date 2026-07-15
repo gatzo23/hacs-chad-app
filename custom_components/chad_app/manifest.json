@@ -1,0 +1,11 @@
+{
+  "domain": "chad_app",
+  "name": "Chad App",
+  "version": "1.0.0",
+  "documentation": "https://github.com/yourname/chad_app",
+  "dependencies": [],
+  "codeowners": [],
+  "requirements": [],
+  "iot_class": "cloud_push",
+  "config_flow": true
+}

@@ -1,0 +1,30 @@
+send_message:
+  name: Send Message
+  description: Sends a text message to the Chad App room.
+  fields:
+    text:
+      name: Text
+      description: The message text to send.
+      required: true
+      example: "Hello from Home Assistant!"
+      selector:
+        text:
+
+send_photo:
+  name: Send Photo
+  description: Sends a photo (and optional text) to the Chad App room.
+  fields:
+    path:
+      name: File Path
+      description: The absolute local file path in Home Assistant (e.g. /config/www/image.jpg). Ensure the directory is accessible (allowlist_external_dirs).
+      required: true
+      example: "/config/www/snapshot.jpg"
+      selector:
+        text:
+    text:
+      name: Text
+      description: Optional text to accompany the photo.
+      required: false
+      example: "Here is a picture!"
+      selector:
+        text:

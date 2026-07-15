@@ -1,0 +1,47 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up Chad App",
+        "description": "Enter the connection details for your Chad App instance.",
+        "data": {
+          "url": "API URL",
+          "room_id": "Room ID",
+          "token": "PocketBase Token (Optional)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect"
+    },
+    "abort": {
+      "already_configured": "Device is already configured"
+    }
+  },
+  "services": {
+    "send_message": {
+      "name": "Send Message",
+      "description": "Sends a text message to the Chad App room.",
+      "fields": {
+        "text": {
+          "name": "Text",
+          "description": "The message text to send."
+        }
+      }
+    },
+    "send_photo": {
+      "name": "Send Photo",
+      "description": "Sends a photo to the Chad App room.",
+      "fields": {
+        "path": {
+          "name": "File Path",
+          "description": "Local path to the image file."
+        },
+        "text": {
+          "name": "Text",
+          "description": "Optional text to accompany the photo."
+        }
+      }
+    }
+  }
+}
