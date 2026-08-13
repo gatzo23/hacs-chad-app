@@ -1,37 +1,75 @@
+# Service definitions for Chad App / Adlos Integration
+
 send_message:
-  name: Send Message
-  description: Sends a text message to the Chad App room.
+  name: Send message via Adlos
+  description: Sends a notification text message or photo/camera image to the Adlos App.
   fields:
-    text:
-      name: Text
-      description: The message text to send.
-      required: false
-      example: "Hello from Home Assistant!"
-      selector:
-        text:
     message:
-      name: Message
-      description: Alternative field for message text.
-      required: false
-      example: "Hello from Home Assistant!"
+      name: Message / Text
+      description: The main message text to send.
+      required: true
+      example: "Die Waschmaschine ist fertig!"
       selector:
         text:
+          multiline: true
+    title:
+      name: Title
+      description: Optional title for the notification.
+      required: false
+      example: "Haushalt"
+      selector:
+        text:
+    image:
+      name: Image / Photo Path
+      description: Optional local path to an image file (e.g. /config/www/snapshot.jpg).
+      required: false
+      example: "/config/www/snapshot.jpg"
+      selector:
+        text:
+    target:
+      name: Target / Recipient (Room)
+      description: Optional recipient or room name (e.g. homeassistant_bot).
+      required: false
+      example: "homeassistant_bot"
+      selector:
+        text:
+    data:
+      name: Extra Data
+      description: Additional key-value options if needed.
+      required: false
+      selector:
+        object:
 
 send_photo:
-  name: Send Photo
-  description: Sends a photo (and optional text) to the Chad App room.
+  name: Send photo via Adlos
+  description: Sends a photo image file with an optional message/caption to the Adlos App.
   fields:
+    message:
+      name: Caption / Text
+      description: Optional text message or caption for the photo.
+      required: false
+      example: "Bewegung an der Auffahrt"
+      selector:
+        text:
+          multiline: true
+    title:
+      name: Title
+      description: Optional title for the photo.
+      required: false
+      example: "Kamera Auffahrt"
+      selector:
+        text:
     path:
-      name: File Path
-      description: The absolute local file path in Home Assistant (e.g. /config/www/image.jpg). Ensure the directory is accessible (allowlist_external_dirs).
+      name: Image File Path
+      description: Local path to the image file on Home Assistant (e.g. /config/www/snapshot.jpg).
       required: true
       example: "/config/www/snapshot.jpg"
       selector:
         text:
-    text:
-      name: Text
-      description: Optional text to accompany the photo.
+    target:
+      name: Target / Recipient (Room)
+      description: Optional recipient or room name (e.g. homeassistant_bot).
       required: false
-      example: "Here is a picture!"
+      example: "homeassistant_bot"
       selector:
         text:
