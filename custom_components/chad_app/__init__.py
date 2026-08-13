@@ -68,14 +68,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "type": "text"
         }
 
+        _LOGGER.warning("ADLOS_REST: Sending message to %s (room=%s): %s", url, target_room, text)
+
         try:
             async with session.post(url, json=payload, headers=headers) as response:
+                resp_body = await response.text()
                 if response.status not in (200, 201, 204):
-                    _LOGGER.error("Failed to send message: %s", await response.text())
+                    _LOGGER.error("ADLOS_REST ERROR (HTTP %s): %s", response.status, resp_body)
                 else:
-                    _LOGGER.info("Message successfully posted to PocketBase REST API: %s", text)
+                    _LOGGER.warning("ADLOS_REST SUCCESS (HTTP %s): %s", response.status, resp_body)
         except Exception as e:
-            _LOGGER.error("Error sending message: %s", e)
+            _LOGGER.error("ADLOS_REST EXCEPTION: %s", e)
 
     async def send_photo(call: ServiceCall):
         """Service to send a photo to PocketBase REST API."""
@@ -119,8 +122,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             headers["Authorization"] = f"Bearer {token}"
 
         if not file_path or not os.path.exists(file_path):
-            _LOGGER.error("File not found for send_photo: %s", file_path)
+            _LOGGER.error("ADLOS_REST ERROR: File not found for send_photo: %s", file_path)
             return
+
+        _LOGGER.warning("ADLOS_REST: Sending photo to %s (room=%s, file=%s): %s", url, target_room, file_path, text)
 
         try:
             form_data = aiohttp.FormData()
@@ -133,10 +138,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 form_data.add_field("file", f, filename=os.path.basename(file_path))
                 
                 async with session.post(url, data=form_data, headers=headers) as response:
+                    resp_body = await response.text()
                     if response.status not in (200, 201, 204):
-                        _LOGGER.error("Failed to send photo: %s", await response.text())
+                        _LOGGER.error("ADLOS_REST ERROR (HTTP %s): %s", response.status, resp_body)
+                    else:
+                        _LOGGER.warning("ADLOS_REST SUCCESS (HTTP %s): %s", response.status, resp_body)
         except Exception as e:
-            _LOGGER.error("Error sending photo: %s", e)
+            _LOGGER.error("ADLOS_REST EXCEPTION: %s", e)
 
     # Register services under chad_app domain
     hass.services.async_register(DOMAIN, "send_message", send_message)
