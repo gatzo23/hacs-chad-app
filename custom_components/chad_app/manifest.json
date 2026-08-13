@@ -1,10 +1,10 @@
 {
   "domain": "chad_app",
   "name": "Chad App",
-  "version": "1.0.0",
-  "documentation": "https://github.com/yourname/chad_app",
+  "version": "1.0.8",
+  "documentation": "https://github.com/gatzo23/hacs-chad-app",
   "dependencies": [],
-  "codeowners": [],
+  "codeowners": ["@gatzo23"],
   "requirements": [],
   "iot_class": "cloud_push",
   "config_flow": true

@@ -28,8 +28,34 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     async def send_message(call: ServiceCall):
         """Service to send a text message to PocketBase REST API."""
-        text = call.data.get("text") or call.data.get("message") or call.data.get("content") or call.data.get("payload") or ""
-        target_room = call.data.get("room") or call.data.get("target") or room_id
+        data = call.data
+        extra_data = data.get("data") if isinstance(data.get("data"), dict) else {}
+
+        raw_text = (
+            data.get("message")
+            or data.get("text")
+            or data.get("content")
+            or data.get("payload")
+            or extra_data.get("message")
+            or extra_data.get("text")
+            or ""
+        )
+
+        title = data.get("title") or extra_data.get("title")
+        if title and raw_text and not raw_text.startswith(title):
+            text = f"{title}\n{raw_text}"
+        elif title and not raw_text:
+            text = str(title)
+        else:
+            text = str(raw_text)
+
+        target = data.get("room") or data.get("target") or extra_data.get("room") or extra_data.get("target")
+        if isinstance(target, list) and len(target) > 0:
+            target_room = str(target[0])
+        elif target:
+            target_room = str(target)
+        else:
+            target_room = room_id
 
         headers = {"Content-Type": "application/json"}
         if token:
@@ -53,9 +79,40 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     async def send_photo(call: ServiceCall):
         """Service to send a photo to PocketBase REST API."""
-        text = call.data.get("text") or call.data.get("message") or call.data.get("caption") or ""
-        file_path = call.data.get("path") or call.data.get("file_path") or call.data.get("image")
-        target_room = call.data.get("room") or call.data.get("target") or room_id
+        data = call.data
+        extra_data = data.get("data") if isinstance(data.get("data"), dict) else {}
+
+        raw_text = (
+            data.get("text")
+            or data.get("message")
+            or data.get("caption")
+            or extra_data.get("caption")
+            or extra_data.get("message")
+            or ""
+        )
+        title = data.get("title") or extra_data.get("title")
+        if title and raw_text and not raw_text.startswith(title):
+            text = f"{title}\n{raw_text}"
+        elif title and not raw_text:
+            text = str(title)
+        else:
+            text = str(raw_text)
+
+        file_path = (
+            data.get("path")
+            or data.get("file_path")
+            or data.get("image")
+            or extra_data.get("path")
+            or extra_data.get("file_path")
+            or extra_data.get("image")
+        )
+        target = data.get("room") or data.get("target") or extra_data.get("room") or extra_data.get("target")
+        if isinstance(target, list) and len(target) > 0:
+            target_room = str(target[0])
+        elif target:
+            target_room = str(target)
+        else:
+            target_room = room_id
 
         headers = {}
         if token:
@@ -66,16 +123,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             return
 
         try:
-            data = aiohttp.FormData()
-            data.add_field("text", text)
-            data.add_field("sender", "Home Assistant")
-            data.add_field("room", target_room)
-            data.add_field("type", "image")
+            form_data = aiohttp.FormData()
+            form_data.add_field("text", text)
+            form_data.add_field("sender", "Home Assistant")
+            form_data.add_field("room", target_room)
+            form_data.add_field("type", "image")
             
             with open(file_path, "rb") as f:
-                data.add_field("file", f, filename=os.path.basename(file_path))
+                form_data.add_field("file", f, filename=os.path.basename(file_path))
                 
-                async with session.post(url, data=data, headers=headers) as response:
+                async with session.post(url, data=form_data, headers=headers) as response:
                     if response.status not in (200, 201, 204):
                         _LOGGER.error("Failed to send photo: %s", await response.text())
         except Exception as e:
