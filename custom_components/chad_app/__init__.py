@@ -178,9 +178,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.services.async_register(DOMAIN, "send_photo", send_photo)
 
     # Register aliases so adlos.send_message, adlos.send_photo, and notify.adlos work out of the box in automations
-    hass.services.async_register("adlos", "send_message", send_message)
-    hass.services.async_register("adlos", "send_photo", send_photo)
-    hass.services.async_register("notify", "adlos", send_message)
+    # Forward notify platform setup so notify.adlos entity is created
+    await hass.config_entries.async_forward_entry_setups(entry, ["notify"])
 
     return True
 
