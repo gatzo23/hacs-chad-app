@@ -14,8 +14,8 @@ class ChadAppConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return self.async_create_entry(title="Chad App", data=user_input)
 
         data_schema = vol.Schema({
-            vol.Required(CONF_URL, default="https://beetec.org/api/collections/messages/records"): str,
-            vol.Required(CONF_ROOM_ID): str,
+            vol.Required(CONF_URL, default="https://pocket.nextbee.org/api/collections/messages/records"): str,
+            vol.Required(CONF_ROOM_ID, default="homeassistant_bot"): str,
             vol.Optional(CONF_TOKEN): str,
         })
 

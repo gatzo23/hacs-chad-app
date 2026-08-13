@@ -5,7 +5,14 @@ send_message:
     text:
       name: Text
       description: The message text to send.
-      required: true
+      required: false
+      example: "Hello from Home Assistant!"
+      selector:
+        text:
+    message:
+      name: Message
+      description: Alternative field for message text.
+      required: false
       example: "Hello from Home Assistant!"
       selector:
         text:
