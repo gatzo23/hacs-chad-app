@@ -24,7 +24,7 @@ class AdlosChadNotifyEntity(NotifyEntity):
     """Adlos Notify Entity for modern Home Assistant UI."""
 
     _attr_has_entity_name = False
-    _attr_name = "Adlos"
+    _attr_name = "adlos"
     _attr_icon = "mdi:chat-processing-outline"
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry):
