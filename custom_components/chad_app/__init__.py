@@ -57,6 +57,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         else:
             target_room = room_id
 
+        raw_base_url = (url or "").strip()
+        if "beeserver.org" in raw_base_url and "pocket" not in raw_base_url:
+            base_url = "https://pocket.nextbee.org"
+        else:
+            base_url = raw_base_url or "https://pocket.nextbee.org"
+
+        if "records" in base_url:
+            target_url = base_url
+        elif base_url.startswith(("http://", "https://")):
+            target_url = f"{base_url.rstrip('/')}/api/collections/messages/records"
+        else:
+            target_url = "https://pocket.nextbee.org/api/collections/messages/records"
+
         headers = {"Content-Type": "application/json"}
         if token:
             headers["Authorization"] = f"Bearer {token}"
@@ -68,17 +81,31 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "type": "text"
         }
 
-        _LOGGER.warning("ADLOS_REST: Sending message to %s (room=%s): %s", url, target_room, text)
+        _LOGGER.warning("ADLOS_REST: Sending message to %s (room=%s): %s", target_url, target_room, text)
 
-        try:
-            async with session.post(url, json=payload, headers=headers) as response:
-                resp_body = await response.text()
-                if response.status not in (200, 201, 204):
-                    _LOGGER.error("ADLOS_REST ERROR (HTTP %s): %s", response.status, resp_body)
-                else:
-                    _LOGGER.warning("ADLOS_REST SUCCESS (HTTP %s): %s", response.status, resp_body)
-        except Exception as e:
-            _LOGGER.error("ADLOS_REST EXCEPTION: %s", e)
+        candidate_urls = [
+            target_url,
+            "https://pocket.nextbee.org/api/collections/messages/records",
+            "http://192.168.178.74:8090/api/collections/messages/records",
+        ]
+        candidate_urls = list(dict.fromkeys(candidate_urls))
+
+        success = False
+        for post_url in candidate_urls:
+            try:
+                async with session.post(post_url, json=payload, headers=headers, timeout=10) as response:
+                    resp_body = await response.text()
+                    if response.status not in (200, 201, 204):
+                        _LOGGER.error("ADLOS_REST ERROR (HTTP %s) via %s: %s", response.status, post_url, resp_body)
+                    else:
+                        _LOGGER.warning("ADLOS_REST SUCCESS (HTTP %s) via %s: %s", response.status, post_url, resp_body)
+                        success = True
+                        break
+            except Exception as e:
+                _LOGGER.error("ADLOS_REST EXCEPTION posting to %s: %s", post_url, e)
+
+        if not success:
+            _LOGGER.error("ADLOS_REST: Failed to send message to all candidate URLs: %s", candidate_urls)
 
     async def send_photo(call: ServiceCall):
         """Service to send a photo to PocketBase REST API."""
