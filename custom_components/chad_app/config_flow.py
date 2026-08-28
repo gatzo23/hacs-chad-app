@@ -1,6 +1,10 @@
+import json
+import base64
+import io
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import callback
+from homeassistant.helpers.network import get_url
 from .const import (
     DOMAIN,
     CONF_URL,
@@ -11,24 +15,79 @@ from .const import (
     CONF_ENCRYPTION_KEY,
 )
 
+
+def make_qr_svg_data_uri(text: str) -> str:
+    """Generates an SVG QR-Code data URI."""
+    try:
+        import qrcode
+        import qrcode.image.svg
+        factory = qrcode.image.svg.SvgPathImage
+        img = qrcode.make(text, image_factory=factory)
+        buf = io.BytesIO()
+        img.save(buf)
+        b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+        return f"data:image/svg+xml;base64,{b64}"
+    except Exception:
+        return ""
+
+
 class ChadAppConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for Chad App / Adlos."""
+    """Handle a config flow for Chad App / Adlos (exakt wie in v17 mit QR-Code)."""
     VERSION = 1
 
+    def __init__(self):
+        """Initialize config flow."""
+        self._user_input = {}
+
     async def async_step_user(self, user_input=None):
-        """Handle the initial step."""
+        """Handle the initial step: URL und room_id."""
         errors = {}
 
         if user_input is not None:
-            return self.async_create_entry(title="Adlos / Chad App", data=user_input)
+            self._user_input = user_input
+            return await self.async_step_pair()
 
         data_schema = vol.Schema({
             vol.Required(CONF_URL, default="https://pocket.nextbee.org/api/collections/messages/records"): str,
-            vol.Optional(CONF_BOT_ID, default="homeassistant_bot"): str,
+            vol.Required(CONF_ROOM_ID, default="homeassistant_bot"): str,
+            vol.Optional(CONF_TOKEN): str,
         })
 
         return self.async_show_form(
             step_id="user", data_schema=data_schema, errors=errors
+        )
+
+    async def async_step_pair(self, user_input=None):
+        """Step 2: Show QR Code pairing screen with URL and Token."""
+        if user_input is not None:
+            return self.async_create_entry(title="Adlos / Chad App", data=self._user_input)
+
+        try:
+            ha_url = get_url(self.hass, allow_internal=True, allow_external=True)
+        except Exception:
+            ha_url = "http://192.168.178.82:8123"
+
+        token = self._user_input.get(CONF_TOKEN) or "adlos_ha_access"
+        pairing_payload = json.dumps({
+            "type": "adlos_ha",
+            "url": ha_url,
+            "token": token,
+            "webhook_id": "adlos_pairing",
+        })
+
+        qr_data_uri = make_qr_svg_data_uri(pairing_payload)
+        description = (
+            "### 📱 Scanne diesen QR-Code mit der Adlos App:\n\n"
+            f"![QR-Code]({qr_data_uri})\n\n"
+            f"**Home Assistant URL:** `{ha_url}`\n\n"
+            f"**Token:** `{token}`\n\n"
+            "Klicke auf **Abschließen**, wenn du den Code gescannt hast."
+        )
+
+        return self.async_show_form(
+            step_id="pair",
+            data_schema=vol.Schema({}),
+            description_placeholders={"qr_description": description},
         )
 
     @staticmethod
@@ -50,26 +109,17 @@ class ChadAppOptionsFlowHandler(config_entries.OptionsFlow):
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 
-        current_contacts = self.config_entry.options.get(
-            CONF_TARGET_CONTACTS,
-            self.config_entry.data.get(CONF_TARGET_CONTACTS, "")
-        )
         current_bot_id = self.config_entry.options.get(
             CONF_BOT_ID,
             self.config_entry.data.get(CONF_BOT_ID, "homeassistant_bot")
         )
-        current_key = self.config_entry.options.get(
-            CONF_ENCRYPTION_KEY,
-            self.config_entry.data.get(CONF_ENCRYPTION_KEY, "")
-        )
 
         options_schema = vol.Schema({
-            vol.Optional(CONF_TARGET_CONTACTS, default=current_contacts): str,
             vol.Optional(CONF_BOT_ID, default=current_bot_id): str,
-            vol.Optional(CONF_ENCRYPTION_KEY, default=current_key): str,
         })
 
         return self.async_show_form(
             step_id="init", data_schema=options_schema
         )
+
 

@@ -6,8 +6,13 @@
         "description": "Enter the connection details for your Adlos / Chad App instance.",
         "data": {
           "url": "PocketBase API URL",
-          "bot_id": "Bot ID (Default: homeassistant_bot)"
+          "room_id": "Default Room ID",
+          "token": "PocketBase Token (Optional)"
         }
+      },
+      "pair": {
+        "title": "Pair Adlos App",
+        "description": "{qr_description}"
       }
     },
     "error": {
