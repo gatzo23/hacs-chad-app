@@ -35,15 +35,27 @@
   "services": {
     "send_message": {
       "name": "Send Message",
-      "description": "Sends an encrypted text message to one or multiple Adlos users.",
+      "description": "Sends an encrypted text message or photo to one or multiple Adlos users.",
       "fields": {
-        "text": {
-          "name": "Text",
-          "description": "The message text to send."
+        "message": {
+          "name": "Message",
+          "description": "The main message text to send."
+        },
+        "title": {
+          "name": "Title",
+          "description": "Optional title for the notification."
         },
         "target": {
           "name": "Target",
-          "description": "Contact ID(s) or Room name(s)."
+          "description": "User Name(s), Contact ID(s) or Room name(s)."
+        },
+        "room": {
+          "name": "Room",
+          "description": "Optional explicit room override (default: homeassistant_bot)."
+        },
+        "image": {
+          "name": "Image Path",
+          "description": "Optional local path to an image file (e.g. /config/www/snapshot.jpg)."
         },
         "encryption_key": {
           "name": "Encryption Key",
@@ -55,17 +67,29 @@
       "name": "Send Photo",
       "description": "Sends an encrypted photo to one or multiple Adlos users.",
       "fields": {
+        "message": {
+          "name": "Caption / Text",
+          "description": "Optional text to accompany the photo."
+        },
+        "title": {
+          "name": "Title",
+          "description": "Optional title for the photo."
+        },
         "path": {
           "name": "File Path",
-          "description": "Local path to the image file."
+          "description": "Local path to the image file (e.g. /config/www/snapshot.jpg)."
         },
-        "text": {
-          "name": "Text",
-          "description": "Optional text to accompany the photo."
+        "image": {
+          "name": "Image Path",
+          "description": "Alternative parameter for the image file path."
         },
         "target": {
           "name": "Target",
-          "description": "Contact ID(s) or Room name(s)."
+          "description": "User Name(s), Contact ID(s) or Room name(n)."
+        },
+        "room": {
+          "name": "Room",
+          "description": "Optional explicit room override (default: homeassistant_bot)."
         },
         "encryption_key": {
           "name": "Encryption Key",
@@ -75,15 +99,15 @@
     },
     "register_user": {
       "name": "Register User",
-      "description": "Registers an Adlos user Contact ID for notifications (e.g. called upon QR code scan).",
+      "description": "Registers an Adlos user Contact ID and name for notifications (e.g. called upon QR code scan).",
       "fields": {
         "contact_id": {
           "name": "Contact ID",
-          "description": "The Adlos contact ID of the user."
+          "description": "The 15-character Adlos contact ID of the user."
         },
         "name": {
           "name": "User Name",
-          "description": "Optional name of the user."
+          "description": "Optional display name of the user."
         }
       }
     },

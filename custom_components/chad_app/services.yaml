@@ -47,12 +47,6 @@ send_message:
       example: "adlos_custom_secret"
       selector:
         text:
-    data:
-      name: Extra Data
-      description: Additional key-value options if needed (e.g. room, type, webhook_id).
-      required: false
-      selector:
-        object:
 
 send_photo:
   name: Send photo via Adlos

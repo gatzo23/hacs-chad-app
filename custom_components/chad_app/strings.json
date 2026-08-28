@@ -37,13 +37,25 @@
       "name": "Nachricht senden",
       "description": "Sendet eine verschlüsselte Textnachricht an einen oder mehrere Adlos-Nutzer.",
       "fields": {
-        "text": {
-          "name": "Text",
-          "description": "Der Text der Nachricht."
+        "message": {
+          "name": "Nachricht",
+          "description": "Der Haupttext der Nachricht."
+        },
+        "title": {
+          "name": "Titel",
+          "description": "Optionaler Titel der Nachricht."
         },
         "target": {
           "name": "Empfänger",
-          "description": "Contact-ID(s) oder Raumname(n)."
+          "description": "Name(n), Contact-ID(s) oder Raumname(n)."
+        },
+        "room": {
+          "name": "Raum",
+          "description": "Optionaler benutzerdefinierter Raum (Standard: homeassistant_bot)."
+        },
+        "image": {
+          "name": "Bildpfad",
+          "description": "Optionaler lokaler Pfad zu einer Bilddatei (z.B. /config/www/snapshot.jpg)."
         },
         "encryption_key": {
           "name": "Verschlüsselungsschlüssel",
@@ -55,17 +67,29 @@
       "name": "Foto senden",
       "description": "Sendet ein verschlüsseltes Foto an einen oder mehrere Adlos-Nutzer.",
       "fields": {
+        "message": {
+          "name": "Bildunterschrift / Nachricht",
+          "description": "Optionaler Begleittext zum Foto."
+        },
+        "title": {
+          "name": "Titel",
+          "description": "Optionaler Titel für das Foto."
+        },
         "path": {
           "name": "Dateipfad",
-          "description": "Lokaler Pfad zur Bilddatei (z.B. /config/www/image.jpg)."
+          "description": "Lokaler Pfad zur Bilddatei (z.B. /config/www/snapshot.jpg)."
         },
-        "text": {
-          "name": "Text",
-          "description": "Optionaler Begleittext zum Foto."
+        "image": {
+          "name": "Bildpfad",
+          "description": "Alternativer Parameter für den Bilddateipfad."
         },
         "target": {
           "name": "Empfänger",
-          "description": "Contact-ID(s) oder Raumname(n)."
+          "description": "Name(n), Contact-ID(s) oder Raumname(n)."
+        },
+        "room": {
+          "name": "Raum",
+          "description": "Optionaler benutzerdefinierter Raum (Standard: homeassistant_bot)."
         },
         "encryption_key": {
           "name": "Verschlüsselungsschlüssel",
@@ -75,15 +99,15 @@
     },
     "register_user": {
       "name": "Nutzer registrieren",
-      "description": "Registriert eine Adlos Contact-ID automatisch für Benachrichtigungen.",
+      "description": "Registriert eine Adlos Contact-ID und Namen automatisch für Benachrichtigungen.",
       "fields": {
         "contact_id": {
           "name": "Contact ID",
-          "description": "Die Adlos Contact-ID des Nutzers."
+          "description": "Die 15-stellige Adlos Contact-ID des Nutzers."
         },
         "name": {
           "name": "Nutzername",
-          "description": "Optionaler Name des Nutzers."
+          "description": "Optionaler Anzeigename des Nutzers für gezielte target-Angaben."
         }
       }
     },
