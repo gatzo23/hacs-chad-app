@@ -1,7 +1,7 @@
 {
   "domain": "chad_app",
   "name": "Chad App",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "documentation": "https://github.com/gatzo23/hacs-chad-app",
   "dependencies": ["webhook"],
   "codeowners": ["@gatzo23"],

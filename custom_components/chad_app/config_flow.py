@@ -25,10 +25,6 @@ class ChadAppConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         data_schema = vol.Schema({
             vol.Required(CONF_URL, default="https://pocket.nextbee.org/api/collections/messages/records"): str,
             vol.Optional(CONF_BOT_ID, default="homeassistant_bot"): str,
-            vol.Optional(CONF_TARGET_CONTACTS, default=""): str,
-            vol.Optional(CONF_ROOM_ID, default="homeassistant_bot"): str,
-            vol.Optional(CONF_TOKEN): str,
-            vol.Optional(CONF_ENCRYPTION_KEY): str,
         })
 
         return self.async_show_form(

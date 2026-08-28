@@ -6,11 +6,7 @@
         "description": "Gib die Verbindungsdaten für deine Adlos / Chad App ein.",
         "data": {
           "url": "PocketBase API URL",
-          "bot_id": "Bot ID (Standard: homeassistant_bot)",
-          "target_contacts": "Ziel-Nutzer Contact IDs (kommagetrennt für Multi-User)",
-          "room_id": "Standard Room ID (Fallback)",
-          "token": "PocketBase Token (Optional)",
-          "encryption_key": "Verschlüsselungsschlüssel / Passphrase (Optional)"
+          "bot_id": "Bot ID (Standard: homeassistant_bot)"
         }
       }
     },
