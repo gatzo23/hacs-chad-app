@@ -133,6 +133,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     target_contacts_raw = entry.options.get(CONF_TARGET_CONTACTS, entry.data.get(CONF_TARGET_CONTACTS, ""))
     configured_key = entry.options.get(CONF_ENCRYPTION_KEY, entry.data.get(CONF_ENCRYPTION_KEY))
 
+    stored_users = entry.options.get("registered_users", entry.data.get("registered_users", {}))
+    if not isinstance(stored_users, dict):
+        stored_users = {}
+
     hass.data[DOMAIN][entry.entry_id] = {
         CONF_URL: url,
         CONF_TOKEN: token,
@@ -140,7 +144,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         CONF_ROOM_ID: default_room,
         CONF_TARGET_CONTACTS: target_contacts_raw,
         CONF_ENCRYPTION_KEY: configured_key,
-        "registered_users": {},
+        "registered_users": dict(stored_users),
     }
 
     session = async_get_clientsession(hass)
@@ -424,22 +428,50 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if tasks:
             await asyncio.gather(*tasks)
 
-    # Register Webhooks for QR code automatic pairing and user registration
-    webhook_ids = [f"adlos_pairing_{entry.entry_id}", "adlos_pairing", "adlos_register_user"]
-    
-    async def async_add_contact(contact_id: str) -> list[str]:
+    async def async_register_user_entry(contact_id: str, user_name: str | None = None) -> list[str]:
         cid = (contact_id or "").strip()
         if not cid:
             return []
+        name = (user_name or "").strip() or cid
+
+        reg_users = hass.data[DOMAIN][entry.entry_id].setdefault("registered_users", {})
+        reg_users[cid] = {
+            "contact_id": cid,
+            "name": name,
+        }
+
         cur_str = entry.options.get(CONF_TARGET_CONTACTS, entry.data.get(CONF_TARGET_CONTACTS, ""))
         cur_list = [c.strip() for c in re.split(r'[,;\s]+', cur_str) if c.strip()]
         if cid not in cur_list:
             cur_list.append(cid)
-            new_options = dict(entry.options)
-            new_options[CONF_TARGET_CONTACTS] = ", ".join(cur_list)
-            hass.config_entries.async_update_entry(entry, options=new_options)
-            _LOGGER.info("ADLOS_AUTO_PAIRING: Auto-registered user contact ID: %s (Total contacts: %s)", cid, len(cur_list))
+
+        new_options = dict(entry.options)
+        new_options[CONF_TARGET_CONTACTS] = ", ".join(cur_list)
+        new_options["registered_users"] = reg_users
+        hass.config_entries.async_update_entry(entry, options=new_options)
+        _LOGGER.info("ADLOS_REGISTRATION: Registered user '%s' (%s). Total registered users: %s", name, cid, len(reg_users))
         return cur_list
+
+    async def async_unregister_user_entry(contact_id: str) -> None:
+        cid = (contact_id or "").strip()
+        if not cid:
+            return
+        reg_users = hass.data[DOMAIN][entry.entry_id].setdefault("registered_users", {})
+        reg_users.pop(cid, None)
+
+        cur_str = entry.options.get(CONF_TARGET_CONTACTS, entry.data.get(CONF_TARGET_CONTACTS, ""))
+        cur_list = [c.strip() for c in re.split(r'[,;\s]+', cur_str) if c.strip()]
+        if cid in cur_list:
+            cur_list.remove(cid)
+
+        new_options = dict(entry.options)
+        new_options[CONF_TARGET_CONTACTS] = ", ".join(cur_list)
+        new_options["registered_users"] = reg_users
+        hass.config_entries.async_update_entry(entry, options=new_options)
+        _LOGGER.info("ADLOS_REGISTRATION: Unregistered user contact ID: %s", cid)
+
+    # Register Webhooks for QR code automatic pairing and user registration
+    webhook_ids = [f"adlos_pairing_{entry.entry_id}", "adlos_pairing", "adlos_register_user"]
 
     async def handle_pairing_webhook(hass: HomeAssistant, webhook_id: str, request: aiohttp.web.Request) -> aiohttp.web.Response:
         try:
@@ -451,19 +483,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         user_name = str(body.get("name") or body.get("user_name") or body.get("username") or "").strip()
         
         if contact_id:
-            reg_users = hass.data[DOMAIN][entry.entry_id].setdefault("registered_users", {})
-            reg_users[contact_id] = {
-                "contact_id": contact_id,
-                "name": user_name or contact_id,
-            }
-            contacts = await async_add_contact(contact_id)
-            _LOGGER.info("ADLOS_WEBHOOK: Registered user '%s' with contact ID %s (Total registered: %s)", user_name or contact_id, contact_id, len(reg_users))
+            contacts = await async_register_user_entry(contact_id, user_name)
+            reg_users = hass.data[DOMAIN][entry.entry_id].get("registered_users", {})
             return aiohttp.web.json_response({
                 "status": "ok",
                 "message": f"User {contact_id} ({user_name}) successfully registered in Home Assistant",
                 "contact_id": contact_id,
                 "name": user_name,
-                "total_registered": len(contacts),
+                "total_registered": len(reg_users),
                 "bot_id": bot_id,
                 "room_id": derive_room_id(bot_id, contact_id),
             })
@@ -481,27 +508,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         contact_id = str(call.data.get("contact_id") or call.data.get("id") or call.data.get("target") or "").strip()
         user_name = str(call.data.get("name") or call.data.get("user_name") or "").strip()
         if contact_id:
-            reg_users = hass.data[DOMAIN][entry.entry_id].setdefault("registered_users", {})
-            reg_users[contact_id] = {
-                "contact_id": contact_id,
-                "name": user_name or contact_id,
-            }
-            await async_add_contact(contact_id)
+            await async_register_user_entry(contact_id, user_name)
 
     async def unregister_user(call: ServiceCall):
         """Service to remove a user contact_id from target_contacts and registered_users."""
         contact_id = str(call.data.get("contact_id") or call.data.get("id") or call.data.get("target") or "").strip()
         if contact_id:
-            reg_users = hass.data[DOMAIN][entry.entry_id].setdefault("registered_users", {})
-            reg_users.pop(contact_id, None)
-            cur_str = entry.options.get(CONF_TARGET_CONTACTS, entry.data.get(CONF_TARGET_CONTACTS, ""))
-            cur_list = [c.strip() for c in re.split(r'[,;\s]+', cur_str) if c.strip()]
-            if contact_id in cur_list:
-                cur_list.remove(contact_id)
-                new_options = dict(entry.options)
-                new_options[CONF_TARGET_CONTACTS] = ", ".join(cur_list)
-                hass.config_entries.async_update_entry(entry, options=new_options)
-                _LOGGER.info("ADLOS_AUTO_PAIRING: Unregistered user contact ID: %s", contact_id)
+            await async_unregister_user_entry(contact_id)
 
     # Register services under chad_app domain
     hass.services.async_register(DOMAIN, "send_message", send_message)
