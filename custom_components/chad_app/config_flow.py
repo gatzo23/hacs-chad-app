@@ -13,6 +13,7 @@ from .const import (
     CONF_BOT_ID,
     CONF_TARGET_CONTACTS,
     CONF_ENCRYPTION_KEY,
+    CONF_HA_URL,
 )
 
 
