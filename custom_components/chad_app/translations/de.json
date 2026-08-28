@@ -2,12 +2,15 @@
   "config": {
     "step": {
       "user": {
-        "title": "Chad App einrichten",
-        "description": "Gib die Verbindungsdaten für deine Chad App ein.",
+        "title": "Adlos / Chad App einrichten",
+        "description": "Gib die Verbindungsdaten für deine Adlos / Chad App ein.",
         "data": {
-          "url": "API URL",
-          "room_id": "Room ID",
-          "token": "PocketBase Token (Optional)"
+          "url": "PocketBase API URL",
+          "bot_id": "Bot ID (Standard: homeassistant_bot)",
+          "target_contacts": "Ziel-Nutzer Contact IDs (kommagetrennt für Multi-User)",
+          "room_id": "Standard Room ID (Fallback)",
+          "token": "PocketBase Token (Optional)",
+          "encryption_key": "Verschlüsselungsschlüssel / Passphrase (Optional)"
         }
       }
     },
@@ -18,30 +21,61 @@
       "already_configured": "Gerät ist bereits konfiguriert"
     }
   },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Adlos Optionen",
+        "description": "Passe die Ziel-Nutzer und Einstellungen an.",
+        "data": {
+          "target_contacts": "Ziel-Nutzer Contact IDs (kommagetrennt)",
+          "bot_id": "Bot ID",
+          "encryption_key": "Verschlüsselungsschlüssel (Optional)"
+        }
+      }
+    }
+  },
   "services": {
     "send_message": {
       "name": "Nachricht senden",
-      "description": "Sendet eine Textnachricht in den Chad App Raum.",
+      "description": "Sendet eine verschlüsselte Textnachricht an einen oder mehrere Adlos-Nutzer.",
       "fields": {
         "text": {
           "name": "Text",
           "description": "Der Text der Nachricht."
+        },
+        "target": {
+          "name": "Empfänger",
+          "description": "Contact-ID(s) oder Raumname(n)."
+        },
+        "encryption_key": {
+          "name": "Verschlüsselungsschlüssel",
+          "description": "Optionaler benutzerdefinierter Verschlüsselungsschlüssel."
         }
       }
     },
     "send_photo": {
-      "name": "Send message via Adlos",
-      "description": "Sendet eine Nachricht oder ein optionales Foto in den Adlos App Raum.",
+      "name": "Foto senden",
+      "description": "Sendet ein verschlüsseltes Foto an einen oder mehrere Adlos-Nutzer.",
       "fields": {
         "path": {
           "name": "Dateipfad",
-          "description": "Optionaler lokaler Pfad zur Bilddatei (z.B. /config/www/image.jpg)."
+          "description": "Lokaler Pfad zur Bilddatei (z.B. /config/www/image.jpg)."
         },
         "text": {
           "name": "Text",
-          "description": "Optionaler Text zum Foto."
+          "description": "Optionaler Begleittext zum Foto."
+        },
+        "target": {
+          "name": "Empfänger",
+          "description": "Contact-ID(s) oder Raumname(n)."
+        },
+        "encryption_key": {
+          "name": "Verschlüsselungsschlüssel",
+          "description": "Optionaler benutzerdefinierter Verschlüsselungsschlüssel."
         }
       }
     }
   }
 }
+
+

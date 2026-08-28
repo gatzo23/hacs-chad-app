@@ -1,7 +1,14 @@
-# Chad App for Home Assistant
+# Adlos / Chad App for Home Assistant (E2EE)
 
-A custom component (HACS extension) to integrate your Chad App / PocketBase backend into Home Assistant.
-This allows you to easily send text messages and images to a Chad App room without needing complex YAML configurations.
+A custom component (HACS extension) to integrate your Adlos / Chad App / PocketBase backend into Home Assistant with full **End-to-End Encryption (AES-256-CBC)**.
+
+## Features
+- **End-to-End Encrypted Messages & Images**: Text and image files are encrypted locally with AES-256-CBC and PKCS7 padding before being uploaded to PocketBase.
+- **Multi-User Support**: Send notifications to multiple user contacts simultaneously. For each user, a separate encrypted PocketBase record is created in their respective derived room.
+- **Automatic Room & Key Derivation**: Rooms are derived using `derive_room_id("homeassistant_bot", user_contact_id)` and keys via `sha256('adlos_e2ee_secret_v1_' + room_id)`.
+- **Auto-Burn / Ephemeral Relay**: Each user retrieves and burns their own record without affecting other users.
+- **Config & Options Flow**: Configure target contacts initially and update them anytime via Home Assistant's *Configure* menu.
+- **Service Aliases**: Supports `adlos.send_message`, `adloshacs.send_message`, `chad_app.send_message`, `notify.adlos`, and `send_photo`.
 
 ## Installation via HACS
 
@@ -18,34 +25,48 @@ This allows you to easily send text messages and images to a Chad App room witho
 ## Configuration
 
 1. In Home Assistant, go to Settings -> Devices & Services.
-2. Click "Add Integration" in the bottom right corner.
-3. Search for "Chad App".
-4. Enter your Chad App URL, Room ID, and (optional) PocketBase token.
+2. Click "Add Integration" and select "Adlos" / "Chad App".
+3. Enter:
+   - **PocketBase API URL** (e.g. `https://pocket.nextbee.org/api/collections/messages/records`)
+   - **Bot ID** (default: `homeassistant_bot`)
+   - **Target Contact IDs** (comma-separated, e.g. `user_contact_id_1, user_contact_id_2`)
+4. To modify targets later, go to Settings -> Devices & Services -> Adlos -> Configure.
 
 ## Services
 
-This integration provides two services:
+### `adlos.send_message` / `chad_app.send_message`
+Sends an end-to-end encrypted text message or image to all configured users (or specified targets).
 
-### `chad_app.send_message`
-
-Sends a simple text message.
-
-**Example YAML:**
 ```yaml
-service: chad_app.send_message
+service: adlos.send_message
 data:
-  text: "Hello from Home Assistant!"
+  title: "Waschmaschine"
+  message: "Die Wäsche ist fertig!"
+  # Optional: specify single or multiple recipients (overrides default targets)
+  target:
+    - "user_contact_id_1"
+    - "user_contact_id_2"
 ```
 
-### `chad_app.send_photo`
+### `adlos.send_photo` / `chad_app.send_photo`
+Sends an end-to-end encrypted photo to all configured users (or specified targets).
 
-Sends an image file.
-
-**Example YAML:**
 ```yaml
-service: chad_app.send_photo
+service: adlos.send_photo
 data:
-  text: "Optional text"
-  path: "/config/www/my_image.jpg"
+  message: "Bewegung erkannt!"
+  path: "/config/www/snapshot.jpg"
 ```
-**Note:** Ensure the path you specify is permitted in your Home Assistant configuration under `allowlist_external_dirs` if the file is outside standard locations.
+
+### Modern Notify Entity
+```yaml
+service: notify.adlos
+data:
+  title: "Garten"
+  message: "Bewegung im Garten erkannt"
+  data:
+    image: "/config/www/garden.jpg"
+    target: "user_contact_id_1"
+```
+
+
