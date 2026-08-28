@@ -41,8 +41,8 @@ send_message:
         object:
 
 send_photo:
-  name: Send photo via Adlos
-  description: Sends a photo image file with an optional message/caption to the Adlos App.
+  name: Send message via Adlos
+  description: Sends a notification message or photo image file to the Adlos App.
   fields:
     message:
       name: Caption / Text
@@ -61,8 +61,15 @@ send_photo:
         text:
     path:
       name: Image File Path
-      description: Local path to the image file on Home Assistant (e.g. /config/www/snapshot.jpg).
-      required: true
+      description: Optional local path to the image file on Home Assistant (e.g. /config/www/snapshot.jpg).
+      required: false
+      example: "/config/www/snapshot.jpg"
+      selector:
+        text:
+    image:
+      name: Image / Photo Path
+      description: Optional alternative field for the local image file path.
+      required: false
       example: "/config/www/snapshot.jpg"
       selector:
         text:

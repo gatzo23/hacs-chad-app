@@ -30,12 +30,12 @@
       }
     },
     "send_photo": {
-      "name": "Foto senden",
-      "description": "Sendet ein Foto in den Chad App Raum.",
+      "name": "Send message via Adlos",
+      "description": "Sendet eine Nachricht oder ein optionales Foto in den Adlos App Raum.",
       "fields": {
         "path": {
           "name": "Dateipfad",
-          "description": "Lokaler Pfad zur Bilddatei (z.B. /config/www/image.jpg)."
+          "description": "Optionaler lokaler Pfad zur Bilddatei (z.B. /config/www/image.jpg)."
         },
         "text": {
           "name": "Text",
