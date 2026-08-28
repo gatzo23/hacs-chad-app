@@ -53,9 +53,13 @@
           "name": "Raum",
           "description": "Optionaler benutzerdefinierter Raum (Standard: homeassistant_bot)."
         },
+        "camera": {
+          "name": "Kamera-Entität",
+          "description": "Optionale Kamera (z.B. camera.hauseingang) für automatischen Schnappschuss."
+        },
         "image": {
-          "name": "Bildpfad",
-          "description": "Optionaler lokaler Pfad zu einer Bilddatei (z.B. /config/www/snapshot.jpg)."
+          "name": "Bildpfad / URL",
+          "description": "Optionaler lokaler Pfad oder URL (z.B. /config/www/snapshot.jpg oder https://...)."
         },
         "encryption_key": {
           "name": "Verschlüsselungsschlüssel",
@@ -75,13 +79,17 @@
           "name": "Titel",
           "description": "Optionaler Titel für das Foto."
         },
+        "camera": {
+          "name": "Kamera-Entität",
+          "description": "Optionale Kamera (z.B. camera.hauseingang) für automatischen Schnappschuss."
+        },
         "path": {
           "name": "Dateipfad",
           "description": "Lokaler Pfad zur Bilddatei (z.B. /config/www/snapshot.jpg)."
         },
         "image": {
-          "name": "Bildpfad",
-          "description": "Alternativer Parameter für den Bilddateipfad."
+          "name": "Bildpfad / URL",
+          "description": "Alternativer Parameter für Bildpfad oder URL."
         },
         "target": {
           "name": "Empfänger",

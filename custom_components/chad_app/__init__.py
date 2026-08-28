@@ -145,6 +145,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         CONF_TARGET_CONTACTS: target_contacts_raw,
         CONF_ENCRYPTION_KEY: configured_key,
         "registered_users": dict(stored_users),
+        "subscribers": set(),
+        "messages": [],
     }
 
     session = async_get_clientsession(hass)
@@ -400,6 +402,72 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         """Service to send an encrypted text message or photo to one or multiple recipients."""
         target_rooms, text, file_path, custom_key, extra_fields = _extract_params(call)
 
+        call_data = call.data
+        extra_data = call_data.get("data") if isinstance(call_data.get("data"), dict) else {}
+
+        camera_entity = call_data.get("camera") or extra_data.get("camera") or call_data.get("camera_entity") or extra_data.get("camera_entity")
+        if not camera_entity and call_data.get("entity_id") and str(call_data.get("entity_id")).startswith("camera."):
+            camera_entity = call_data.get("entity_id")
+
+        image_url = None
+        attachment = None
+        raw_img = call_data.get("image") or extra_data.get("image") or call_data.get("url") or extra_data.get("url")
+
+        if camera_entity:
+            proxy_url = f"/api/camera_proxy/{camera_entity}"
+            image_url = proxy_url
+            attachment = {"type": "image", "url": proxy_url, "camera": camera_entity}
+            msg_type = "image"
+        elif raw_img:
+            image_url = str(raw_img).strip()
+            attachment = {"type": "image", "url": image_url}
+            msg_type = "image"
+        elif file_path:
+            image_url = file_path
+            attachment = {"type": "image", "url": file_path}
+            msg_type = "image"
+        else:
+            msg_type = call_data.get("type") or extra_data.get("type") or "text"
+
+        msg_id = call_data.get("id") or extra_data.get("id") or f"ha_{int(time.time() * 1000)}_{secrets.token_hex(4)}"
+        now_ts = int(time.time() * 1000)
+
+        # Broadcast to SSE subscribers and update backlog
+        store = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
+        if store:
+            payload = {
+                "id": msg_id,
+                "room": target_rooms[0] if len(target_rooms) == 1 else "homeassistant_bot",
+                "sender": "Home Assistant",
+                "type": msg_type,
+                "title": extra_fields.get("title") or "Home Assistant",
+                "message": text,
+                "text": text,
+                "targets": extra_fields.get("targets", []),
+                "target": extra_fields.get("target"),
+                "timestamp": now_ts,
+            }
+            if image_url:
+                payload["image"] = image_url
+            if attachment:
+                payload["attachment"] = attachment
+            if camera_entity:
+                payload["camera"] = camera_entity
+
+            messages_list = store.setdefault("messages", [])
+            messages_list.append(payload)
+            if len(messages_list) > 50:
+                del messages_list[:-50]
+
+            subscribers = list(store.get("subscribers", set()))
+            if subscribers:
+                sse_data = f"data: {json.dumps(payload)}\n\n".encode("utf-8")
+                for resp in subscribers:
+                    try:
+                        asyncio.create_task(resp.write(sse_data))
+                    except Exception as err:
+                        _LOGGER.debug("Error writing to SSE subscriber: %s", err)
+
         tasks = []
         for room in target_rooms:
             if file_path and os.path.exists(file_path):
@@ -415,6 +483,66 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     async def send_photo(call: ServiceCall):
         """Service to send an encrypted photo to one or multiple recipients."""
         target_rooms, text, file_path, custom_key, extra_fields = _extract_params(call)
+
+        call_data = call.data
+        extra_data = call_data.get("data") if isinstance(call_data.get("data"), dict) else {}
+
+        camera_entity = call_data.get("camera") or extra_data.get("camera") or call_data.get("camera_entity") or extra_data.get("camera_entity")
+        if not camera_entity and call_data.get("entity_id") and str(call_data.get("entity_id")).startswith("camera."):
+            camera_entity = call_data.get("entity_id")
+
+        image_url = None
+        attachment = None
+        raw_img = call_data.get("image") or extra_data.get("image") or call_data.get("url") or extra_data.get("url")
+
+        if camera_entity:
+            proxy_url = f"/api/camera_proxy/{camera_entity}"
+            image_url = proxy_url
+            attachment = {"type": "image", "url": proxy_url, "camera": camera_entity}
+        elif raw_img:
+            image_url = str(raw_img).strip()
+            attachment = {"type": "image", "url": image_url}
+        elif file_path:
+            image_url = file_path
+            attachment = {"type": "image", "url": file_path}
+
+        msg_id = call_data.get("id") or extra_data.get("id") or f"ha_{int(time.time() * 1000)}_{secrets.token_hex(4)}"
+        now_ts = int(time.time() * 1000)
+
+        store = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
+        if store:
+            payload = {
+                "id": msg_id,
+                "room": target_rooms[0] if len(target_rooms) == 1 else "homeassistant_bot",
+                "sender": "Home Assistant",
+                "type": "image",
+                "title": extra_fields.get("title") or "Home Assistant",
+                "message": text,
+                "text": text,
+                "targets": extra_fields.get("targets", []),
+                "target": extra_fields.get("target"),
+                "timestamp": now_ts,
+            }
+            if image_url:
+                payload["image"] = image_url
+            if attachment:
+                payload["attachment"] = attachment
+            if camera_entity:
+                payload["camera"] = camera_entity
+
+            messages_list = store.setdefault("messages", [])
+            messages_list.append(payload)
+            if len(messages_list) > 50:
+                del messages_list[:-50]
+
+            subscribers = list(store.get("subscribers", set()))
+            if subscribers:
+                sse_data = f"data: {json.dumps(payload)}\n\n".encode("utf-8")
+                for resp in subscribers:
+                    try:
+                        asyncio.create_task(resp.write(sse_data))
+                    except Exception as err:
+                        _LOGGER.debug("Error writing to SSE subscriber: %s", err)
 
         tasks = []
         for room in target_rooms:
@@ -470,10 +598,68 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.config_entries.async_update_entry(entry, options=new_options)
         _LOGGER.info("ADLOS_REGISTRATION: Unregistered user contact ID: %s", cid)
 
-    # Register Webhooks for QR code automatic pairing and user registration
-    webhook_ids = [f"adlos_pairing_{entry.entry_id}", "adlos_pairing", "adlos_register_user"]
+    # Register Webhooks for QR code automatic pairing, user registration, and SSE stream/history
+    webhook_ids = [f"adlos_pairing_{entry.entry_id}", "adlos_pairing", "adlos_register_user", "adlos_stream"]
 
-    async def handle_pairing_webhook(hass: HomeAssistant, webhook_id: str, request: aiohttp.web.Request) -> aiohttp.web.Response:
+    async def handle_pairing_webhook(hass: HomeAssistant, webhook_id: str, request: aiohttp.web.Request) -> aiohttp.web.StreamResponse | aiohttp.web.Response:
+        store = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
+
+        # Handle GET requests: SSE Stream or Poll/History
+        if request.method == "GET":
+            mode = request.query.get("mode", "").lower()
+            if mode in ("poll", "history"):
+                return aiohttp.web.json_response({
+                    "status": "ok",
+                    "messages": list(store.get("messages", [])),
+                    "registered_users": store.get("registered_users", {}),
+                    "bot_id": bot_id,
+                    "room_id": default_room,
+                })
+
+            # SSE Event-Stream
+            response = aiohttp.web.StreamResponse(
+                status=200,
+                reason="OK",
+                headers={
+                    "Content-Type": "text/event-stream",
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                    "Access-Control-Allow-Origin": "*",
+                    "X-Accel-Buffering": "no",
+                }
+            )
+            await response.prepare(request)
+
+            subscribers_set = store.setdefault("subscribers", set())
+            subscribers_set.add(response)
+            _LOGGER.debug("ADLOS_SSE: New subscriber connected (%s active)", len(subscribers_set))
+
+            connect_payload = {
+                "type": "connected",
+                "bot_id": bot_id,
+                "room": default_room,
+                "timestamp": int(time.time() * 1000),
+            }
+            try:
+                await response.write(f"data: {json.dumps(connect_payload)}\n\n".encode("utf-8"))
+            except Exception as err:
+                _LOGGER.debug("ADLOS_SSE: Error sending connect event: %s", err)
+                subscribers_set.discard(response)
+                return response
+
+            # Keep-alive loop with ping every 15 seconds
+            try:
+                while True:
+                    await asyncio.sleep(15)
+                    await response.write(b": ping\n\n")
+            except (asyncio.CancelledError, ConnectionResetError, aiohttp.ClientError, Exception) as err:
+                _LOGGER.debug("ADLOS_SSE: Subscriber disconnected: %s", err)
+            finally:
+                subscribers_set.discard(response)
+                _LOGGER.debug("ADLOS_SSE: Subscriber cleaned up (%s active)", len(subscribers_set))
+            return response
+
+        # Handle POST requests
         try:
             body = await request.json()
         except Exception:
@@ -481,10 +667,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         msg_type = str(body.get("type") or "").strip()
         contact_id = str(body.get("contact_id") or body.get("contactId") or body.get("user_id") or body.get("id") or "").strip()
         user_name = str(body.get("name") or body.get("user_name") or body.get("username") or "").strip()
-        
+
+        if msg_type == "unregister_user":
+            if contact_id:
+                await async_unregister_user_entry(contact_id)
+                return aiohttp.web.json_response({"status": "ok", "message": f"User {contact_id} unregistered"})
+            return aiohttp.web.json_response({"status": "error", "message": "Missing contact_id"}, status=400)
+
         if contact_id:
             contacts = await async_register_user_entry(contact_id, user_name)
-            reg_users = hass.data[DOMAIN][entry.entry_id].get("registered_users", {})
+            reg_users = store.get("registered_users", {})
             return aiohttp.web.json_response({
                 "status": "ok",
                 "message": f"User {contact_id} ({user_name}) successfully registered in Home Assistant",
@@ -525,9 +717,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         vol.Optional("target"): vol.Any(cv.string, list),
         vol.Optional("targets"): vol.Any(cv.string, list),
         vol.Optional("room"): cv.string,
+        vol.Optional("camera"): cv.string,
+        vol.Optional("camera_entity"): cv.string,
         vol.Optional("image"): cv.string,
         vol.Optional("path"): cv.string,
+        vol.Optional("url"): cv.string,
         vol.Optional("encryption_key"): cv.string,
+        vol.Optional("id"): cv.string,
     }, extra=vol.ALLOW_EXTRA)
 
     send_photo_schema = vol.Schema({
@@ -535,10 +731,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         vol.Optional("title"): cv.string,
         vol.Optional("path"): cv.string,
         vol.Optional("image"): cv.string,
+        vol.Optional("url"): cv.string,
+        vol.Optional("camera"): cv.string,
+        vol.Optional("camera_entity"): cv.string,
         vol.Optional("target"): vol.Any(cv.string, list),
         vol.Optional("targets"): vol.Any(cv.string, list),
         vol.Optional("room"): cv.string,
         vol.Optional("encryption_key"): cv.string,
+        vol.Optional("id"): cv.string,
     }, extra=vol.ALLOW_EXTRA)
 
     register_user_schema = vol.Schema({

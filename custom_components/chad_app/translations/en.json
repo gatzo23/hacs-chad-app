@@ -53,9 +53,13 @@
           "name": "Room",
           "description": "Optional explicit room override (default: homeassistant_bot)."
         },
+        "camera": {
+          "name": "Camera Entity",
+          "description": "Optional camera entity (e.g. camera.hauseingang) for live snapshot delivery."
+        },
         "image": {
-          "name": "Image Path",
-          "description": "Optional local path to an image file (e.g. /config/www/snapshot.jpg)."
+          "name": "Image Path / URL",
+          "description": "Optional local path or URL (e.g. /config/www/snapshot.jpg or https://...)."
         },
         "encryption_key": {
           "name": "Encryption Key",
@@ -75,13 +79,17 @@
           "name": "Title",
           "description": "Optional title for the photo."
         },
+        "camera": {
+          "name": "Camera Entity",
+          "description": "Optional camera entity (e.g. camera.hauseingang) for snapshot delivery."
+        },
         "path": {
           "name": "File Path",
           "description": "Local path to the image file (e.g. /config/www/snapshot.jpg)."
         },
         "image": {
-          "name": "Image Path",
-          "description": "Alternative parameter for the image file path."
+          "name": "Image Path / URL",
+          "description": "Alternative parameter for image file path or URL."
         },
         "target": {
           "name": "Target",

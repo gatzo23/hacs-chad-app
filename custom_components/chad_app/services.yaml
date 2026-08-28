@@ -33,9 +33,16 @@ send_message:
       example: "homeassistant_bot"
       selector:
         text: {}
+    camera:
+      name: Camera Entity
+      description: "Optional camera entity (e.g. camera.hauseingang) for lightweight snapshot delivery via proxy URL."
+      required: false
+      example: "camera.hauseingang"
+      selector:
+        text: {}
     image:
-      name: Image / Photo Path
-      description: Optional local path to an image file (e.g. /config/www/snapshot.jpg).
+      name: Image / Photo Path or URL
+      description: "Optional local path (/config/www/snapshot.jpg) or image URL (https://... or /local/snapshot.jpg)."
       required: false
       example: "/config/www/snapshot.jpg"
       selector:
@@ -67,6 +74,13 @@ send_photo:
       example: "Kamera Auffahrt"
       selector:
         text: {}
+    camera:
+      name: Camera Entity
+      description: "Optional camera entity (e.g. camera.hauseingang) for snapshot delivery."
+      required: false
+      example: "camera.hauseingang"
+      selector:
+        text: {}
     path:
       name: Image File Path
       description: Optional local path to the image file on Home Assistant (e.g. /config/www/snapshot.jpg).
@@ -75,8 +89,8 @@ send_photo:
       selector:
         text: {}
     image:
-      name: Image / Photo Path
-      description: Optional alternative field for the local image file path.
+      name: Image / Photo Path or URL
+      description: "Optional alternative field for local image file path or URL."
       required: false
       example: "/config/www/snapshot.jpg"
       selector:
