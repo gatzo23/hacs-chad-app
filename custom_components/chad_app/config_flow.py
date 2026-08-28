@@ -1,10 +1,10 @@
+import os
+import time
 import json
-import base64
-import io
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import callback
-from homeassistant.helpers.network import get_url
+from homeassistant.components import persistent_notification
 from .const import (
     DOMAIN,
     CONF_URL,
@@ -34,17 +34,16 @@ def normalize_pocketbase_url(raw_url: str) -> str:
     return f"{url}/api/collections/messages/records"
 
 
-def make_qr_svg_data_uri(text: str) -> str:
-    """Generates an SVG QR-Code data URI."""
+def save_qr_code_image(hass, text: str) -> str:
+    """Saves QR code image to HA www directory so it can be rendered reliably via /local/adlos_qr.png."""
     try:
         import qrcode
-        import qrcode.image.svg
-        factory = qrcode.image.svg.SvgPathImage
-        img = qrcode.make(text, image_factory=factory)
-        buf = io.BytesIO()
-        img.save(buf)
-        b64 = base64.b64encode(buf.getvalue()).decode("ascii")
-        return f"data:image/svg+xml;base64,{b64}"
+        img = qrcode.make(text)
+        www_dir = hass.config.path("www")
+        os.makedirs(www_dir, exist_ok=True)
+        img_path = os.path.join(www_dir, "adlos_qr.png")
+        img.save(img_path)
+        return f"/local/adlos_qr.png?t={int(time.time())}"
     except Exception:
         return ""
 
@@ -108,19 +107,35 @@ class ChadAppConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             "webhook_id": "adlos_pairing",
         })
 
-        qr_data_uri = make_qr_svg_data_uri(pairing_payload)
-        description = (
-            "### 📱 Scanne diesen QR-Code mit der Adlos App:\n\n"
-            f"![QR-Code]({qr_data_uri})\n\n"
-            f"**Home Assistant URL:** `{ha_url}`\n\n"
-            f"**Token:** `{token}`\n\n"
-            "Klicke auf **Abschließen**, wenn du den Code gescannt hast."
-        )
+        qr_img_url = save_qr_code_image(self.hass, pairing_payload)
+
+        # Also create a persistent notification in HA
+        try:
+            notification_msg = (
+                f"### 📱 Adlos App Kopplung\n\n"
+                f"![QR-Code]({qr_img_url})\n\n"
+                f"**Home Assistant URL:** `{ha_url}`\n\n"
+                f"**Token:** `{token}`\n\n"
+                f"**JSON-Payload:**\n```json\n{pairing_payload}\n```"
+            )
+            persistent_notification.async_create(
+                self.hass,
+                notification_msg,
+                title="Adlos QR-Code",
+                notification_id="adlos_pairing_qr",
+            )
+        except Exception:
+            pass
 
         return self.async_show_form(
             step_id="pair",
             data_schema=vol.Schema({}),
-            description_placeholders={"qr_description": description},
+            description_placeholders={
+                "ha_url": ha_url,
+                "token": token if token else "Kein Token angegeben",
+                "qr_image": f"![QR-Code]({qr_img_url})" if qr_img_url else "",
+                "pairing_payload": pairing_payload,
+            },
         )
 
     @staticmethod

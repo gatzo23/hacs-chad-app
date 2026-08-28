@@ -13,7 +13,7 @@
       },
       "pair": {
         "title": "Adlos App koppeln",
-        "description": "{qr_description}"
+        "description": "Scanne diesen QR-Code mit der Adlos-App:\n\n{qr_image}\n\n**Home Assistant URL:** {ha_url}\n\n**Token:** {token}\n\n**Kopplungs-Daten:**\n`{pairing_payload}`\n\n*(Hinweis: Der QR-Code wurde auch unter Benachrichtigungen abgelegt)*\n\nKlicke auf **Abschließen**, wenn du den Code gescannt hast."
       }
     },
     "error": {
