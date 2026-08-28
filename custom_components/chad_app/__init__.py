@@ -516,19 +516,53 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if contact_id:
             await async_unregister_user_entry(contact_id)
 
+    import voluptuous as vol
+    from homeassistant.helpers import config_validation as cv
+
+    send_message_schema = vol.Schema({
+        vol.Required("message"): cv.string,
+        vol.Optional("title"): cv.string,
+        vol.Optional("target"): vol.Any(cv.string, list),
+        vol.Optional("targets"): vol.Any(cv.string, list),
+        vol.Optional("room"): cv.string,
+        vol.Optional("image"): cv.string,
+        vol.Optional("path"): cv.string,
+        vol.Optional("encryption_key"): cv.string,
+    }, extra=vol.ALLOW_EXTRA)
+
+    send_photo_schema = vol.Schema({
+        vol.Optional("message"): cv.string,
+        vol.Optional("title"): cv.string,
+        vol.Optional("path"): cv.string,
+        vol.Optional("image"): cv.string,
+        vol.Optional("target"): vol.Any(cv.string, list),
+        vol.Optional("targets"): vol.Any(cv.string, list),
+        vol.Optional("room"): cv.string,
+        vol.Optional("encryption_key"): cv.string,
+    }, extra=vol.ALLOW_EXTRA)
+
+    register_user_schema = vol.Schema({
+        vol.Required("contact_id"): cv.string,
+        vol.Optional("name"): cv.string,
+    }, extra=vol.ALLOW_EXTRA)
+
+    unregister_user_schema = vol.Schema({
+        vol.Required("contact_id"): cv.string,
+    }, extra=vol.ALLOW_EXTRA)
+
     # Register services under chad_app domain
-    hass.services.async_register(DOMAIN, "send_message", send_message)
-    hass.services.async_register(DOMAIN, "send_photo", send_photo)
-    hass.services.async_register(DOMAIN, "register_user", register_user)
-    hass.services.async_register(DOMAIN, "unregister_user", unregister_user)
+    hass.services.async_register(DOMAIN, "send_message", send_message, schema=send_message_schema)
+    hass.services.async_register(DOMAIN, "send_photo", send_photo, schema=send_photo_schema)
+    hass.services.async_register(DOMAIN, "register_user", register_user, schema=register_user_schema)
+    hass.services.async_register(DOMAIN, "unregister_user", unregister_user, schema=unregister_user_schema)
 
     # Register aliases so adlos.send_message, adlos.register_user, etc. work out of the box in automations
     for alias_domain in ["adlos", "adloshacs"]:
         try:
-            hass.services.async_register(alias_domain, "send_message", send_message)
-            hass.services.async_register(alias_domain, "send_photo", send_photo)
-            hass.services.async_register(alias_domain, "register_user", register_user)
-            hass.services.async_register(alias_domain, "unregister_user", unregister_user)
+            hass.services.async_register(alias_domain, "send_message", send_message, schema=send_message_schema)
+            hass.services.async_register(alias_domain, "send_photo", send_photo, schema=send_photo_schema)
+            hass.services.async_register(alias_domain, "register_user", register_user, schema=register_user_schema)
+            hass.services.async_register(alias_domain, "unregister_user", unregister_user, schema=unregister_user_schema)
         except Exception:
             pass
 

@@ -18,35 +18,35 @@ send_message:
       required: false
       example: "Haushalt"
       selector:
-        text:
+        text: {}
     target:
       name: Target / Recipient(s)
       description: "Optional recipient(s). Can be a registered user name (e.g. 'Kai'), a list of names/IDs (e.g. ['Kai', 'Eltern']), a 15-character PocketBase contact ID, or a room name prefixed with 'room:' (e.g. 'room:homeassistant_bot'). If omitted, sends to all configured target contacts or 'homeassistant_bot'."
       required: false
       example: "Kai"
       selector:
-        text:
+        text: {}
     room:
       name: Room Override
       description: "Optional explicit room override. By default, 'homeassistant_bot' is used."
       required: false
       example: "homeassistant_bot"
       selector:
-        text:
+        text: {}
     image:
       name: Image / Photo Path
       description: Optional local path to an image file (e.g. /config/www/snapshot.jpg).
       required: false
       example: "/config/www/snapshot.jpg"
       selector:
-        text:
+        text: {}
     encryption_key:
       name: Encryption Key
       description: Optional custom Base64/passphrase encryption key override.
       required: false
       example: "adlos_custom_secret"
       selector:
-        text:
+        text: {}
 
 send_photo:
   name: Send photo via Adlos
@@ -66,42 +66,42 @@ send_photo:
       required: false
       example: "Kamera Auffahrt"
       selector:
-        text:
+        text: {}
     path:
       name: Image File Path
       description: Optional local path to the image file on Home Assistant (e.g. /config/www/snapshot.jpg).
       required: false
       example: "/config/www/snapshot.jpg"
       selector:
-        text:
+        text: {}
     image:
       name: Image / Photo Path
       description: Optional alternative field for the local image file path.
       required: false
       example: "/config/www/snapshot.jpg"
       selector:
-        text:
+        text: {}
     target:
       name: Target / Recipient(s)
       description: "Optional recipient(s). Can be a registered user name (e.g. 'Kai'), a list of names/IDs (e.g. ['Kai', 'Eltern']), a 15-character contact ID, or a room prefixed with 'room:'. If omitted, sends to all configured contacts."
       required: false
       example: "Kai"
       selector:
-        text:
+        text: {}
     room:
       name: Room Override
       description: "Optional explicit room override. By default, 'homeassistant_bot' is used."
       required: false
       example: "homeassistant_bot"
       selector:
-        text:
+        text: {}
     encryption_key:
       name: Encryption Key
       description: Optional custom Base64/passphrase encryption key override.
       required: false
       example: "adlos_custom_secret"
       selector:
-        text:
+        text: {}
 
 register_user:
   name: Register User Contact
@@ -113,14 +113,14 @@ register_user:
       required: true
       example: "a1b2c3d4e5f6789"
       selector:
-        text:
+        text: {}
     name:
       name: User Name
       description: Optional display name for the user (allows addressing the user via target: "Name").
       required: false
       example: "Kai"
       selector:
-        text:
+        text: {}
 
 unregister_user:
   name: Unregister User Contact
@@ -132,7 +132,7 @@ unregister_user:
       required: true
       example: "a1b2c3d4e5f6789"
       selector:
-        text:
+        text: {}
 
 
 
