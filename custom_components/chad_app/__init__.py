@@ -140,6 +140,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         CONF_ROOM_ID: default_room,
         CONF_TARGET_CONTACTS: target_contacts_raw,
         CONF_ENCRYPTION_KEY: configured_key,
+        "registered_users": {},
     }
 
     session = async_get_clientsession(hass)
@@ -173,7 +174,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         ]
         return list(dict.fromkeys(candidates))
 
-    async def _async_send_text_to_room(target_room: str, text: str, custom_key: str | None = None) -> bool:
+    async def _async_send_text_to_room(target_room: str, text: str, custom_key: str | None = None, extra_fields: dict | None = None) -> bool:
         target_url = _get_target_url(url)
         candidate_urls = _get_candidate_urls(target_url)
         headers = {"Content-Type": "application/json"}
@@ -189,6 +190,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "text": encrypted_text,
             "type": "text",
         }
+        if extra_fields:
+            if "title" in extra_fields and extra_fields["title"]:
+                payload["title"] = extra_fields["title"]
+            if "targets" in extra_fields and extra_fields["targets"]:
+                payload["targets"] = extra_fields["targets"]
+            if "target" in extra_fields and extra_fields["target"] is not None:
+                payload["target"] = extra_fields["target"]
 
         _LOGGER.debug("ADLOS_REST: Sending encrypted message to room %s", target_room)
 
@@ -206,7 +214,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.error("ADLOS_REST: Failed to send encrypted message to room %s", target_room)
         return False
 
-    async def _async_send_file_to_room(target_room: str, text: str, file_path: str, custom_key: str | None = None) -> bool:
+    async def _async_send_file_to_room(target_room: str, text: str, file_path: str, custom_key: str | None = None, extra_fields: dict | None = None) -> bool:
         target_url = _get_target_url(url)
         candidate_urls = _get_candidate_urls(target_url)
         headers = {}
@@ -269,29 +277,49 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             return [p.strip() for p in parts if p.strip()]
         return [str(raw_input).strip()]
 
-    def _resolve_target_rooms(specified_targets: list[str]) -> list[str]:
-        """Maps user contact IDs or room names to deterministic room IDs."""
+    def _resolve_target_rooms(specified_targets: list[str], explicit_room: str | None = None) -> list[str]:
+        """Maps user names, contact IDs, or room names to deterministic room IDs."""
+        if explicit_room and str(explicit_room).strip() and str(explicit_room).strip() != "homeassistant_bot":
+            return [str(explicit_room).strip()]
+
         targets = specified_targets
         if not targets:
             targets = _parse_recipients(target_contacts_raw)
 
         if not targets:
-            # Fallback to default room_id
-            return [default_room]
+            # Fallback to default room (standard: "homeassistant_bot")
+            return [explicit_room or default_room or "homeassistant_bot"]
 
+        reg_users = hass.data[DOMAIN].get(entry.entry_id, {}).get("registered_users", {})
         target_rooms = []
+
         for rec in targets:
             if not rec:
                 continue
-            if rec.startswith("room:"):
-                target_rooms.append(rec[5:].strip())
-            elif rec == bot_id or rec == "homeassistant_bot":
-                target_rooms.append(rec)
+            rec_str = str(rec).strip()
+            if rec_str.startswith("room:"):
+                target_rooms.append(rec_str[5:].strip())
+            elif rec_str == bot_id or rec_str == "homeassistant_bot":
+                target_rooms.append(rec_str)
             else:
-                # Target is a user contact ID -> derive pairwise room ID with bot_id
-                target_rooms.append(derive_room_id(bot_id, rec))
+                # Check registered users by name (case-insensitive) or contact_id
+                matched_cid = None
+                for cid, uinfo in reg_users.items():
+                    if rec_str.lower() == cid.lower() or rec_str.lower() == str(uinfo.get("name", "")).lower():
+                        matched_cid = cid
+                        break
 
-        return list(dict.fromkeys(target_rooms)) if target_rooms else [default_room]
+                if matched_cid:
+                    target_rooms.append(derive_room_id(bot_id, matched_cid))
+                elif len(rec_str) == 15 and re.match(r'^[a-zA-Z0-9]{15}$', rec_str):
+                    # Valid 15-character PocketBase contact ID
+                    target_rooms.append(derive_room_id(bot_id, rec_str))
+                else:
+                    # User name or target not mapped to a 15-char contact ID -> fallback to standard bot room
+                    _LOGGER.info("ADLOS: Target '%s' mapped to standard bot room '%s'", rec_str, default_room or "homeassistant_bot")
+                    target_rooms.append(default_room or "homeassistant_bot")
+
+        return list(dict.fromkeys(target_rooms)) if target_rooms else [default_room or "homeassistant_bot"]
 
     def _extract_params(call: ServiceCall):
         data = call.data
@@ -317,22 +345,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         else:
             text = str(raw_text)
 
+        explicit_room = data.get("room") or extra_data.get("room")
+
         raw_targets = (
             data.get("target")
             or data.get("targets")
             or data.get("contact_id")
             or data.get("contact_ids")
-            or data.get("room")
-            or data.get("rooms")
             or extra_data.get("target")
             or extra_data.get("targets")
             or extra_data.get("contact_id")
             or extra_data.get("contact_ids")
-            or extra_data.get("room")
-            or extra_data.get("rooms")
         )
         parsed_targets = _parse_recipients(raw_targets)
-        target_rooms = _resolve_target_rooms(parsed_targets)
+        target_rooms = _resolve_target_rooms(parsed_targets, explicit_room)
 
         file_path = (
             data.get("path")
@@ -358,41 +384,47 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             if not custom_key:
                 custom_key = None
 
-        return target_rooms, text, file_path, custom_key
+        extra_fields = {
+            "title": title or "Home Assistant",
+            "targets": parsed_targets,
+            "target": raw_targets,
+        }
+
+        return target_rooms, text, file_path, custom_key, extra_fields
 
     async def send_message(call: ServiceCall):
         """Service to send an encrypted text message or photo to one or multiple recipients."""
-        target_rooms, text, file_path, custom_key = _extract_params(call)
+        target_rooms, text, file_path, custom_key, extra_fields = _extract_params(call)
 
         tasks = []
         for room in target_rooms:
             if file_path and os.path.exists(file_path):
-                tasks.append(_async_send_file_to_room(room, text, file_path, custom_key))
+                tasks.append(_async_send_file_to_room(room, text, file_path, custom_key, extra_fields))
             else:
                 if file_path:
                     _LOGGER.warning("ADLOS_REST: Image file '%s' not found. Sending as text message.", file_path)
-                tasks.append(_async_send_text_to_room(room, text, custom_key))
+                tasks.append(_async_send_text_to_room(room, text, custom_key, extra_fields))
 
         if tasks:
             await asyncio.gather(*tasks)
 
     async def send_photo(call: ServiceCall):
         """Service to send an encrypted photo to one or multiple recipients."""
-        target_rooms, text, file_path, custom_key = _extract_params(call)
+        target_rooms, text, file_path, custom_key, extra_fields = _extract_params(call)
 
         tasks = []
         for room in target_rooms:
             if file_path and os.path.exists(file_path):
-                tasks.append(_async_send_file_to_room(room, text, file_path, custom_key))
+                tasks.append(_async_send_file_to_room(room, text, file_path, custom_key, extra_fields))
             else:
                 if file_path:
                     _LOGGER.warning("ADLOS_REST: File path '%s' not found for send_photo. Sending as text message instead.", file_path)
-                tasks.append(_async_send_text_to_room(room, text, custom_key))
+                tasks.append(_async_send_text_to_room(room, text, custom_key, extra_fields))
 
         if tasks:
             await asyncio.gather(*tasks)
 
-    # Register Webhooks for QR code automatic pairing
+    # Register Webhooks for QR code automatic pairing and user registration
     webhook_ids = [f"adlos_pairing_{entry.entry_id}", "adlos_pairing", "adlos_register_user"]
     
     async def async_add_contact(contact_id: str) -> list[str]:
@@ -414,15 +446,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             body = await request.json()
         except Exception:
             body = {}
+        msg_type = str(body.get("type") or "").strip()
         contact_id = str(body.get("contact_id") or body.get("contactId") or body.get("user_id") or body.get("id") or "").strip()
         user_name = str(body.get("name") or body.get("user_name") or body.get("username") or "").strip()
         
         if contact_id:
+            reg_users = hass.data[DOMAIN][entry.entry_id].setdefault("registered_users", {})
+            reg_users[contact_id] = {
+                "contact_id": contact_id,
+                "name": user_name or contact_id,
+            }
             contacts = await async_add_contact(contact_id)
+            _LOGGER.info("ADLOS_WEBHOOK: Registered user '%s' with contact ID %s (Total registered: %s)", user_name or contact_id, contact_id, len(reg_users))
             return aiohttp.web.json_response({
                 "status": "ok",
                 "message": f"User {contact_id} ({user_name}) successfully registered in Home Assistant",
                 "contact_id": contact_id,
+                "name": user_name,
                 "total_registered": len(contacts),
                 "bot_id": bot_id,
                 "room_id": derive_room_id(bot_id, contact_id),
@@ -437,15 +477,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             pass
 
     async def register_user(call: ServiceCall):
-        """Service to register a user contact_id into target_contacts."""
+        """Service to register a user contact_id into target_contacts and registered_users."""
         contact_id = str(call.data.get("contact_id") or call.data.get("id") or call.data.get("target") or "").strip()
+        user_name = str(call.data.get("name") or call.data.get("user_name") or "").strip()
         if contact_id:
+            reg_users = hass.data[DOMAIN][entry.entry_id].setdefault("registered_users", {})
+            reg_users[contact_id] = {
+                "contact_id": contact_id,
+                "name": user_name or contact_id,
+            }
             await async_add_contact(contact_id)
 
     async def unregister_user(call: ServiceCall):
-        """Service to remove a user contact_id from target_contacts."""
+        """Service to remove a user contact_id from target_contacts and registered_users."""
         contact_id = str(call.data.get("contact_id") or call.data.get("id") or call.data.get("target") or "").strip()
         if contact_id:
+            reg_users = hass.data[DOMAIN][entry.entry_id].setdefault("registered_users", {})
+            reg_users.pop(contact_id, None)
             cur_str = entry.options.get(CONF_TARGET_CONTACTS, entry.data.get(CONF_TARGET_CONTACTS, ""))
             cur_list = [c.strip() for c in re.split(r'[,;\s]+', cur_str) if c.strip()]
             if contact_id in cur_list:

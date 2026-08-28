@@ -1,12 +1,14 @@
-"""Adlos notification service & entity platform for Chad App."""
+"""Adlos notification service & entity platform for Chad App / Adlos."""
 
+import asyncio
 import logging
+import re
 from homeassistant.components.notify import NotifyEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, CONF_URL, CONF_TOKEN, CONF_ROOM_ID
+from .const import DOMAIN, CONF_TOKEN, CONF_ROOM_ID
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -33,12 +35,72 @@ class AdlosChadNotifyEntity(NotifyEntity):
         self.entry = entry
         self.entity_id = "notify.adlos"
         self._attr_unique_id = f"{DOMAIN}_notify_{entry.entry_id}"
+        self.secret_token = entry.options.get(CONF_TOKEN, entry.data.get(CONF_TOKEN, ""))
+        self.webhook_id = f"adlos_pairing_{entry.entry_id}"
 
     async def async_send_message(self, message: str, title: str | None = None, data: dict | None = None) -> None:
         """Send a notification message via Adlos Notify Entity."""
-        send_func = self.hass.services.has_service(DOMAIN, "send_message")
-        if send_func:
-            call_data = {"message": message, "title": title}
-            if data:
-                call_data["data"] = data
+        data = dict(data) if data else {}
+
+        # 1. Standard-Raum (room) beibehalten:
+        # Standardmäßig immer "homeassistant_bot", es sei denn im data-Dictionary wird explizit ein alternativer room übergeben
+        room_id = data.get("room") or data.get("room_id") or "homeassistant_bot"
+
+        # 2. Empfänger (targets) als formatierte Liste & Originalwert ermitteln
+        targets = data.get("target") or data.get("targets")
+        target_list: list[str] = []
+        if targets is not None:
+            if isinstance(targets, list):
+                target_list = [str(t).strip() for t in targets if str(t).strip()]
+            elif isinstance(targets, str):
+                parts = re.split(r'[,;\s]+', targets.strip())
+                target_list = [p.strip() for p in parts if p.strip()]
+            else:
+                target_list = [str(targets).strip()]
+
+        # Bestimme Nachrichtentyp (text, image, video)
+        msg_type = data.get("type")
+        if not msg_type:
+            if data.get("image") or data.get("path") or data.get("file_path"):
+                msg_type = "image"
+            elif data.get("video") or data.get("video_path"):
+                msg_type = "video"
+            else:
+                msg_type = "text"
+
+        payload = {
+            "room": room_id,
+            "sender": "Home Assistant",
+            "type": msg_type,
+            "title": title or "Home Assistant",
+            "message": message,
+            "text": message,
+            "targets": target_list,
+            "target": targets,
+            "token": self.secret_token,
+            "webhook_id": self.webhook_id,
+            "timestamp": asyncio.get_event_loop().time(),
+        }
+
+        # Kombinierte Aufrufdaten vorbereiten
+        combined_data = {**data, **payload}
+        call_data = {
+            "message": message,
+            "title": title,
+            "room": room_id,
+            "target": targets,
+            "targets": target_list,
+            "data": combined_data,
+        }
+
+        if data.get("image") or data.get("path") or data.get("file_path"):
+            call_data["image"] = data.get("image") or data.get("path") or data.get("file_path")
+            call_data["path"] = call_data["image"]
+
+        # Service-Aufruf weiterleiten
+        if self.hass.services.has_service(DOMAIN, "send_message"):
             await self.hass.services.async_call(DOMAIN, "send_message", call_data)
+        elif self.hass.services.has_service("adlos", "send_message"):
+            await self.hass.services.async_call("adlos", "send_message", call_data)
+        elif self.hass.services.has_service("adloshacs", "send_message"):
+            await self.hass.services.async_call("adloshacs", "send_message", call_data)

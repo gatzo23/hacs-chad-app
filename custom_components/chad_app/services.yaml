@@ -2,7 +2,7 @@
 
 send_message:
   name: Send message via Adlos
-  description: Sends a notification text message or photo/camera image to the Adlos App.
+  description: Sends an end-to-end encrypted notification text message or photo to Adlos users, registered contacts, or specific rooms.
   fields:
     message:
       name: Message / Text
@@ -19,18 +19,25 @@ send_message:
       example: "Haushalt"
       selector:
         text:
+    target:
+      name: Target / Recipient(s)
+      description: "Optional recipient(s). Can be a registered user name (e.g. 'Kai'), a list of names/IDs (e.g. ['Kai', 'Eltern']), a 15-character PocketBase contact ID, or a room name prefixed with 'room:' (e.g. 'room:homeassistant_bot'). If omitted, sends to all configured target contacts or 'homeassistant_bot'."
+      required: false
+      example: "Kai"
+      selector:
+        text:
+    room:
+      name: Room Override
+      description: "Optional explicit room override. By default, 'homeassistant_bot' is used."
+      required: false
+      example: "homeassistant_bot"
+      selector:
+        text:
     image:
       name: Image / Photo Path
       description: Optional local path to an image file (e.g. /config/www/snapshot.jpg).
       required: false
       example: "/config/www/snapshot.jpg"
-      selector:
-        text:
-    target:
-      name: Target / Recipient(s)
-      description: Optional contact ID, list of contact IDs, or room name. If omitted, sends to all configured target contacts.
-      required: false
-      example: "user_contact_id_1, user_contact_id_2"
       selector:
         text:
     encryption_key:
@@ -42,14 +49,14 @@ send_message:
         text:
     data:
       name: Extra Data
-      description: Additional key-value options if needed.
+      description: Additional key-value options if needed (e.g. room, type, webhook_id).
       required: false
       selector:
         object:
 
 send_photo:
-  name: Send message via Adlos
-  description: Sends a notification message or photo image file to one or multiple Adlos users.
+  name: Send photo via Adlos
+  description: Sends an end-to-end encrypted photo image file to one or multiple Adlos users, registered contacts, or rooms.
   fields:
     message:
       name: Caption / Text
@@ -82,9 +89,16 @@ send_photo:
         text:
     target:
       name: Target / Recipient(s)
-      description: Optional contact ID, list of contact IDs, or room name. If omitted, sends to all configured target contacts.
+      description: "Optional recipient(s). Can be a registered user name (e.g. 'Kai'), a list of names/IDs (e.g. ['Kai', 'Eltern']), a 15-character contact ID, or a room prefixed with 'room:'. If omitted, sends to all configured contacts."
       required: false
-      example: "user_contact_id_1, user_contact_id_2"
+      example: "Kai"
+      selector:
+        text:
+    room:
+      name: Room Override
+      description: "Optional explicit room override. By default, 'homeassistant_bot' is used."
+      required: false
+      example: "homeassistant_bot"
       selector:
         text:
     encryption_key:
@@ -97,18 +111,18 @@ send_photo:
 
 register_user:
   name: Register User Contact
-  description: Registers a user contact ID for multi-user notifications (e.g. called automatically upon QR code scan).
+  description: Registers a user contact ID and display name for multi-user notifications and target resolution (e.g. called automatically upon QR code scan).
   fields:
     contact_id:
       name: Contact ID
-      description: The Adlos contact ID of the user.
+      description: The 15-character Adlos contact ID of the user.
       required: true
       example: "a1b2c3d4e5f6789"
       selector:
         text:
     name:
       name: User Name
-      description: Optional display name for the user.
+      description: Optional display name for the user (allows addressing the user via target: "Name").
       required: false
       example: "Kai"
       selector:
@@ -116,7 +130,7 @@ register_user:
 
 unregister_user:
   name: Unregister User Contact
-  description: Removes a user contact ID from the registered target contacts.
+  description: Removes a user contact ID from the registered target contacts and user list.
   fields:
     contact_id:
       name: Contact ID
