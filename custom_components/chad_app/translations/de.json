@@ -5,10 +5,10 @@
         "title": "Adlos / Chad App einrichten",
         "description": "Gib die Verbindungsdaten für deine Adlos / Chad App ein.",
         "data": {
-          "ha_url": "Home Assistant URL (z.B. https://homey.org)",
-          "token": "Home Assistant Langlebiger Zugriffstoken",
-          "url": "PocketBase API URL",
-          "room_id": "Standard Room ID"
+          "ha_url": "Home Assistant Instanz-Adresse (z.B. https://homey.org)",
+          "token": "Home Assistant Langlebiger Zugriffstoken (Optional)",
+          "url": "PocketBase Server URL (z.B. https://pocket.nextbee.org oder bis /api)",
+          "room_id": "Standard Room ID (Optional, Standard: homeassistant_bot)"
         }
       },
       "pair": {

@@ -16,6 +16,23 @@ from .const import (
 )
 
 
+def normalize_pocketbase_url(raw_url: str) -> str:
+    """Normalizes PocketBase URL by automatically appending /api/collections/messages/records."""
+    url = (raw_url or "").strip()
+    if not url:
+        return "https://pocket.nextbee.org/api/collections/messages/records"
+    if not url.startswith("http://") and not url.startswith("https://"):
+        url = f"https://{url}"
+    url = url.rstrip("/")
+    if url.endswith("/api/collections/messages/records") or url.endswith("/records"):
+        return url
+    if url.endswith("/api/collections/messages"):
+        return f"{url}/records"
+    if url.endswith("/api"):
+        return f"{url}/collections/messages/records"
+    return f"{url}/api/collections/messages/records"
+
+
 def make_qr_svg_data_uri(text: str) -> str:
     """Generates an SVG QR-Code data URI."""
     try:
@@ -32,7 +49,7 @@ def make_qr_svg_data_uri(text: str) -> str:
 
 
 class ChadAppConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for Chad App / Adlos (exakt wie in v17 mit QR-Code)."""
+    """Handle a config flow for Chad App / Adlos."""
     VERSION = 1
 
     def __init__(self):
@@ -40,23 +57,26 @@ class ChadAppConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._user_input = {}
 
     async def async_step_user(self, user_input=None):
-        """Handle the initial step: HA URL, Token, PocketBase URL und room_id."""
+        """Handle the initial step: all fields empty by default."""
         errors = {}
 
         if user_input is not None:
+            # Normalize PocketBase URL
+            raw_pb_url = user_input.get(CONF_URL, "")
+            user_input[CONF_URL] = normalize_pocketbase_url(raw_pb_url)
+            
+            # Default room_id fallback if left blank
+            if not user_input.get(CONF_ROOM_ID, "").strip():
+                user_input[CONF_ROOM_ID] = "homeassistant_bot"
+
             self._user_input = user_input
             return await self.async_step_pair()
 
-        try:
-            default_ha_url = get_url(self.hass, allow_internal=True, allow_external=True)
-        except Exception:
-            default_ha_url = "https://homey.org"
-
         data_schema = vol.Schema({
-            vol.Required(CONF_HA_URL, default=default_ha_url): str,
+            vol.Required(CONF_HA_URL, default=""): str,
             vol.Optional(CONF_TOKEN, default=""): str,
-            vol.Required(CONF_URL, default="https://pocket.nextbee.org/api/collections/messages/records"): str,
-            vol.Required(CONF_ROOM_ID, default="homeassistant_bot"): str,
+            vol.Required(CONF_URL, default=""): str,
+            vol.Optional(CONF_ROOM_ID, default=""): str,
         })
 
         return self.async_show_form(
@@ -76,14 +96,9 @@ class ChadAppConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 ha_url = raw_ha_url
             ha_url = ha_url.rstrip("/")
         else:
-            try:
-                ha_url = get_url(self.hass, allow_internal=True, allow_external=True)
-            except Exception:
-                ha_url = "https://homey.org"
+            ha_url = "https://homey.org"
 
         token = (self._user_input.get(CONF_TOKEN) or "").strip()
-        if not token:
-            token = "adlos_ha_access"
 
         pairing_payload = json.dumps({
             "type": "adlos_ha",
