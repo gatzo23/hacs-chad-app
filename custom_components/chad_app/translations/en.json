@@ -10,10 +10,6 @@
           "url": "PocketBase Server URL (e.g. https://pocket.nextbee.org or up to /api)",
           "room_id": "Default Room ID (Optional, Default: homeassistant_bot)"
         }
-      },
-      "pair": {
-        "title": "Pair Adlos App",
-        "description": "Scan this QR code with your Adlos App:\n\n{qr_image}\n\n**Home Assistant URL:** {ha_url}\n\n**Token:** {token}\n\n**Pairing Data:**\n`{pairing_payload}`\n\n*(Note: The QR code was also saved in your Notifications)*\n\nClick **Submit** once you scanned the code."
       }
     },
     "error": {

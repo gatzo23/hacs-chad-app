@@ -474,6 +474,47 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Forward notify platform setup so notify.adlos / notify.chad_app entity is created
     await hass.config_entries.async_forward_entry_setups(entry, ["notify"])
 
+    # Create Pairing QR Code and Notification
+    try:
+        from homeassistant.components import persistent_notification
+        import qrcode
+        import time
+
+        ha_url = str(entry.data.get("ha_url") or "https://homey.org").strip().rstrip("/")
+        if not ha_url.startswith("http://") and not ha_url.startswith("https://"):
+            ha_url = f"https://{ha_url}"
+        ha_token = str(entry.data.get(CONF_TOKEN) or "").strip()
+
+        pairing_payload = json.dumps({
+            "type": "adlos_ha",
+            "url": ha_url,
+            "token": ha_token,
+            "webhook_id": "adlos_pairing",
+        })
+
+        img = qrcode.make(pairing_payload)
+        www_dir = hass.config.path("www")
+        os.makedirs(www_dir, exist_ok=True)
+        img_path = os.path.join(www_dir, "adlos_qr.png")
+        img.save(img_path)
+
+        notification_msg = (
+            f"### 📱 Adlos App Kopplung\n\n"
+            f"Scanne diesen QR-Code mit der Adlos-App:\n\n"
+            f"![QR-Code](/local/adlos_qr.png?t={int(time.time())})\n\n"
+            f"**Home Assistant URL:** `{ha_url}`\n\n"
+            f"**Token:** `{ha_token}`\n\n"
+            f"**Kopplungs-Daten:**\n```json\n{pairing_payload}\n```"
+        )
+        persistent_notification.async_create(
+            hass,
+            notification_msg,
+            title="Adlos QR-Code",
+            notification_id="adlos_pairing_qr",
+        )
+    except Exception as err:
+        _LOGGER.warning("Could not generate pairing QR notification: %s", err)
+
     # Reload entry when options are updated
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
 
