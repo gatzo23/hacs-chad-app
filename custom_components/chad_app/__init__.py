@@ -392,15 +392,82 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if tasks:
             await asyncio.gather(*tasks)
 
+    # Register Webhooks for QR code automatic pairing
+    webhook_ids = [f"adlos_pairing_{entry.entry_id}", "adlos_pairing", "adlos_register_user"]
+    
+    async def async_add_contact(contact_id: str) -> list[str]:
+        cid = (contact_id or "").strip()
+        if not cid:
+            return []
+        cur_str = entry.options.get(CONF_TARGET_CONTACTS, entry.data.get(CONF_TARGET_CONTACTS, ""))
+        cur_list = [c.strip() for c in re.split(r'[,;\s]+', cur_str) if c.strip()]
+        if cid not in cur_list:
+            cur_list.append(cid)
+            new_options = dict(entry.options)
+            new_options[CONF_TARGET_CONTACTS] = ", ".join(cur_list)
+            hass.config_entries.async_update_entry(entry, options=new_options)
+            _LOGGER.info("ADLOS_AUTO_PAIRING: Auto-registered user contact ID: %s (Total contacts: %s)", cid, len(cur_list))
+        return cur_list
+
+    async def handle_pairing_webhook(hass: HomeAssistant, webhook_id: str, request: aiohttp.web.Request) -> aiohttp.web.Response:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        contact_id = str(body.get("contact_id") or body.get("contactId") or body.get("user_id") or body.get("id") or "").strip()
+        user_name = str(body.get("name") or body.get("user_name") or body.get("username") or "").strip()
+        
+        if contact_id:
+            contacts = await async_add_contact(contact_id)
+            return aiohttp.web.json_response({
+                "status": "ok",
+                "message": f"User {contact_id} ({user_name}) successfully registered in Home Assistant",
+                "contact_id": contact_id,
+                "total_registered": len(contacts),
+                "bot_id": bot_id,
+                "room_id": derive_room_id(bot_id, contact_id),
+            })
+        return aiohttp.web.json_response({"status": "error", "message": "Missing contact_id"}, status=400)
+
+    for wid in webhook_ids:
+        try:
+            from homeassistant.components import webhook
+            webhook.async_register(hass, DOMAIN, f"Adlos Pairing ({wid})", wid, handle_pairing_webhook)
+        except Exception:
+            pass
+
+    async def register_user(call: ServiceCall):
+        """Service to register a user contact_id into target_contacts."""
+        contact_id = str(call.data.get("contact_id") or call.data.get("id") or call.data.get("target") or "").strip()
+        if contact_id:
+            await async_add_contact(contact_id)
+
+    async def unregister_user(call: ServiceCall):
+        """Service to remove a user contact_id from target_contacts."""
+        contact_id = str(call.data.get("contact_id") or call.data.get("id") or call.data.get("target") or "").strip()
+        if contact_id:
+            cur_str = entry.options.get(CONF_TARGET_CONTACTS, entry.data.get(CONF_TARGET_CONTACTS, ""))
+            cur_list = [c.strip() for c in re.split(r'[,;\s]+', cur_str) if c.strip()]
+            if contact_id in cur_list:
+                cur_list.remove(contact_id)
+                new_options = dict(entry.options)
+                new_options[CONF_TARGET_CONTACTS] = ", ".join(cur_list)
+                hass.config_entries.async_update_entry(entry, options=new_options)
+                _LOGGER.info("ADLOS_AUTO_PAIRING: Unregistered user contact ID: %s", contact_id)
+
     # Register services under chad_app domain
     hass.services.async_register(DOMAIN, "send_message", send_message)
     hass.services.async_register(DOMAIN, "send_photo", send_photo)
+    hass.services.async_register(DOMAIN, "register_user", register_user)
+    hass.services.async_register(DOMAIN, "unregister_user", unregister_user)
 
-    # Register aliases so adlos.send_message, adloshacs.send_message, etc. work out of the box in automations
+    # Register aliases so adlos.send_message, adlos.register_user, etc. work out of the box in automations
     for alias_domain in ["adlos", "adloshacs"]:
         try:
             hass.services.async_register(alias_domain, "send_message", send_message)
             hass.services.async_register(alias_domain, "send_photo", send_photo)
+            hass.services.async_register(alias_domain, "register_user", register_user)
+            hass.services.async_register(alias_domain, "unregister_user", unregister_user)
         except Exception:
             pass
 
@@ -420,9 +487,18 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
+    # Unregister webhooks
+    webhook_ids = [f"adlos_pairing_{entry.entry_id}", "adlos_pairing", "adlos_register_user"]
+    for wid in webhook_ids:
+        try:
+            from homeassistant.components import webhook
+            webhook.async_unregister(hass, wid)
+        except Exception:
+            pass
+
     hass.data[DOMAIN].pop(entry.entry_id, None)
     if not hass.data[DOMAIN]:
-        for s in ["send_message", "send_photo"]:
+        for s in ["send_message", "send_photo", "register_user", "unregister_user"]:
             for d in [DOMAIN, "adlos", "adloshacs"]:
                 try:
                     hass.services.async_remove(d, s)

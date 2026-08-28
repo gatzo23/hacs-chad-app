@@ -74,8 +74,33 @@
           "description": "Optionaler benutzerdefinierter Verschlüsselungsschlüssel."
         }
       }
+    },
+    "register_user": {
+      "name": "Nutzer registrieren",
+      "description": "Registriert eine Adlos Contact-ID automatisch für Benachrichtigungen.",
+      "fields": {
+        "contact_id": {
+          "name": "Contact ID",
+          "description": "Die Adlos Contact-ID des Nutzers."
+        },
+        "name": {
+          "name": "Nutzername",
+          "description": "Optionaler Name des Nutzers."
+        }
+      }
+    },
+    "unregister_user": {
+      "name": "Nutzer entfernen",
+      "description": "Entfernt eine Adlos Contact-ID aus den registrierten Empfängern.",
+      "fields": {
+        "contact_id": {
+          "name": "Contact ID",
+          "description": "Die zu entfernende Contact-ID."
+        }
+      }
     }
   }
 }
+
 
 

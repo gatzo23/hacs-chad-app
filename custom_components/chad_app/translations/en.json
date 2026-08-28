@@ -74,8 +74,33 @@
           "description": "Optional custom encryption key."
         }
       }
+    },
+    "register_user": {
+      "name": "Register User",
+      "description": "Registers an Adlos user Contact ID for notifications (e.g. called upon QR code scan).",
+      "fields": {
+        "contact_id": {
+          "name": "Contact ID",
+          "description": "The Adlos contact ID of the user."
+        },
+        "name": {
+          "name": "User Name",
+          "description": "Optional name of the user."
+        }
+      }
+    },
+    "unregister_user": {
+      "name": "Unregister User",
+      "description": "Removes an Adlos Contact ID from the registered recipients.",
+      "fields": {
+        "contact_id": {
+          "name": "Contact ID",
+          "description": "The Contact ID to remove."
+        }
+      }
     }
   }
 }
+
 
 

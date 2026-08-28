@@ -95,4 +95,36 @@ send_photo:
       selector:
         text:
 
+register_user:
+  name: Register User Contact
+  description: Registers a user contact ID for multi-user notifications (e.g. called automatically upon QR code scan).
+  fields:
+    contact_id:
+      name: Contact ID
+      description: The Adlos contact ID of the user.
+      required: true
+      example: "a1b2c3d4e5f6789"
+      selector:
+        text:
+    name:
+      name: User Name
+      description: Optional display name for the user.
+      required: false
+      example: "Kai"
+      selector:
+        text:
+
+unregister_user:
+  name: Unregister User Contact
+  description: Removes a user contact ID from the registered target contacts.
+  fields:
+    contact_id:
+      name: Contact ID
+      description: The Adlos contact ID to remove.
+      required: true
+      example: "a1b2c3d4e5f6789"
+      selector:
+        text:
+
+
 
