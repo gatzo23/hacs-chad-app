@@ -5,9 +5,10 @@
         "title": "Set up Adlos / Chad App",
         "description": "Enter the connection details for your Adlos / Chad App instance.",
         "data": {
+          "ha_url": "Home Assistant URL (e.g. https://homey.org)",
+          "token": "Home Assistant Long-Lived Access Token",
           "url": "PocketBase API URL",
-          "room_id": "Default Room ID",
-          "token": "PocketBase Token (Optional)"
+          "room_id": "Default Room ID"
         }
       },
       "pair": {
