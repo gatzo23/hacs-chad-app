@@ -142,30 +142,35 @@ class AdlosChadNotifyEntity(NotifyEntity):
                     except Exception as err:
                         _LOGGER.debug("Error writing to SSE subscriber: %s", err)
 
-        # 6. Kombinierte Daten an Service weiterleiten
+        # 6. Kombinierte Daten an Service weiterleiten (ohne None-Werte)
         combined_data = {**data, **payload}
         call_data = {
             "id": msg_id,
-            "message": message,
-            "title": title,
+            "message": str(message or ""),
             "room": room_id,
-            "target": targets,
-            "targets": target_list,
             "data": combined_data,
         }
-
+        if title is not None:
+            call_data["title"] = str(title)
+        if targets is not None:
+            call_data["target"] = targets
+        if target_list:
+            call_data["targets"] = target_list
         if image_url:
             call_data["image"] = image_url
             call_data["path"] = image_url
         if camera_entity:
             call_data["camera"] = camera_entity
 
-        if self.hass.services.has_service(DOMAIN, "send_message"):
-            await self.hass.services.async_call(DOMAIN, "send_message", call_data)
-        elif self.hass.services.has_service("adlos", "send_message"):
-            await self.hass.services.async_call("adlos", "send_message", call_data)
-        elif self.hass.services.has_service("adloshacs", "send_message"):
-            await self.hass.services.async_call("adloshacs", "send_message", call_data)
+        try:
+            if self.hass.services.has_service(DOMAIN, "send_message"):
+                await self.hass.services.async_call(DOMAIN, "send_message", call_data)
+            elif self.hass.services.has_service("adlos", "send_message"):
+                await self.hass.services.async_call("adlos", "send_message", call_data)
+            elif self.hass.services.has_service("adloshacs", "send_message"):
+                await self.hass.services.async_call("adloshacs", "send_message", call_data)
+        except Exception as err:
+            _LOGGER.error("ADLOS_NOTIFY: Error forwarding to send_message: %s", err)
 
 
 class AdlosUserNotifyEntity(NotifyEntity):
@@ -193,7 +198,6 @@ class AdlosUserNotifyEntity(NotifyEntity):
         data["target"] = self.contact_id
         data.setdefault("room", "homeassistant_bot")
 
-        # Reuse main entity implementation via standard send_message
         msg_id = data.get("id") or f"ha_{int(time.time() * 1000)}_{secrets.token_hex(4)}"
         now_ts = int(time.time() * 1000)
 
@@ -264,24 +268,27 @@ class AdlosUserNotifyEntity(NotifyEntity):
 
         call_data = {
             "id": msg_id,
-            "message": message,
-            "title": title,
+            "message": str(message or ""),
             "target": self.contact_id,
             "targets": [self.contact_id],
             "data": {**data, **payload},
         }
-
+        if title is not None:
+            call_data["title"] = str(title)
         if image_url:
             call_data["image"] = image_url
             call_data["path"] = image_url
         if camera_entity:
             call_data["camera"] = camera_entity
 
-        if self.hass.services.has_service(DOMAIN, "send_message"):
-            await self.hass.services.async_call(DOMAIN, "send_message", call_data)
-        elif self.hass.services.has_service("adlos", "send_message"):
-            await self.hass.services.async_call("adlos", "send_message", call_data)
-        elif self.hass.services.has_service("adloshacs", "send_message"):
-            await self.hass.services.async_call("adloshacs", "send_message", call_data)
+        try:
+            if self.hass.services.has_service(DOMAIN, "send_message"):
+                await self.hass.services.async_call(DOMAIN, "send_message", call_data)
+            elif self.hass.services.has_service("adlos", "send_message"):
+                await self.hass.services.async_call("adlos", "send_message", call_data)
+            elif self.hass.services.has_service("adloshacs", "send_message"):
+                await self.hass.services.async_call("adloshacs", "send_message", call_data)
+        except Exception as err:
+            _LOGGER.error("ADLOS_NOTIFY: Error forwarding to send_message: %s", err)
 
 

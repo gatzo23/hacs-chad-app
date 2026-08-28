@@ -478,7 +478,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 tasks.append(_async_send_text_to_room(room, text, custom_key, extra_fields))
 
         if tasks:
-            await asyncio.gather(*tasks)
+            try:
+                await asyncio.gather(*tasks, return_exceptions=True)
+            except Exception as err:
+                _LOGGER.error("ADLOS_REST: Exception during background sending: %s", err)
 
     async def send_photo(call: ServiceCall):
         """Service to send an encrypted photo to one or multiple recipients."""
@@ -554,7 +557,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 tasks.append(_async_send_text_to_room(room, text, custom_key, extra_fields))
 
         if tasks:
-            await asyncio.gather(*tasks)
+            try:
+                await asyncio.gather(*tasks, return_exceptions=True)
+            except Exception as err:
+                _LOGGER.error("ADLOS_REST: Exception during background sending: %s", err)
 
     async def async_register_user_entry(contact_id: str, user_name: str | None = None) -> list[str]:
         cid = (contact_id or "").strip()
@@ -712,38 +718,40 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from homeassistant.helpers import config_validation as cv
 
     send_message_schema = vol.Schema({
-        vol.Required("message"): cv.string,
-        vol.Optional("title"): cv.string,
-        vol.Optional("target"): vol.Any(cv.string, list),
-        vol.Optional("targets"): vol.Any(cv.string, list),
-        vol.Optional("room"): cv.string,
-        vol.Optional("camera"): cv.string,
-        vol.Optional("camera_entity"): cv.string,
-        vol.Optional("image"): cv.string,
-        vol.Optional("path"): cv.string,
-        vol.Optional("url"): cv.string,
-        vol.Optional("encryption_key"): cv.string,
-        vol.Optional("id"): cv.string,
+        vol.Optional("message"): vol.Any(cv.string, None),
+        vol.Optional("text"): vol.Any(cv.string, None),
+        vol.Optional("title"): vol.Any(cv.string, None),
+        vol.Optional("target"): vol.Any(cv.string, list, None),
+        vol.Optional("targets"): vol.Any(cv.string, list, None),
+        vol.Optional("room"): vol.Any(cv.string, None),
+        vol.Optional("camera"): vol.Any(cv.string, None),
+        vol.Optional("camera_entity"): vol.Any(cv.string, None),
+        vol.Optional("image"): vol.Any(cv.string, None),
+        vol.Optional("path"): vol.Any(cv.string, None),
+        vol.Optional("url"): vol.Any(cv.string, None),
+        vol.Optional("encryption_key"): vol.Any(cv.string, None),
+        vol.Optional("id"): vol.Any(cv.string, None),
     }, extra=vol.ALLOW_EXTRA)
 
     send_photo_schema = vol.Schema({
-        vol.Optional("message"): cv.string,
-        vol.Optional("title"): cv.string,
-        vol.Optional("path"): cv.string,
-        vol.Optional("image"): cv.string,
-        vol.Optional("url"): cv.string,
-        vol.Optional("camera"): cv.string,
-        vol.Optional("camera_entity"): cv.string,
-        vol.Optional("target"): vol.Any(cv.string, list),
-        vol.Optional("targets"): vol.Any(cv.string, list),
-        vol.Optional("room"): cv.string,
-        vol.Optional("encryption_key"): cv.string,
-        vol.Optional("id"): cv.string,
+        vol.Optional("message"): vol.Any(cv.string, None),
+        vol.Optional("text"): vol.Any(cv.string, None),
+        vol.Optional("title"): vol.Any(cv.string, None),
+        vol.Optional("path"): vol.Any(cv.string, None),
+        vol.Optional("image"): vol.Any(cv.string, None),
+        vol.Optional("url"): vol.Any(cv.string, None),
+        vol.Optional("camera"): vol.Any(cv.string, None),
+        vol.Optional("camera_entity"): vol.Any(cv.string, None),
+        vol.Optional("target"): vol.Any(cv.string, list, None),
+        vol.Optional("targets"): vol.Any(cv.string, list, None),
+        vol.Optional("room"): vol.Any(cv.string, None),
+        vol.Optional("encryption_key"): vol.Any(cv.string, None),
+        vol.Optional("id"): vol.Any(cv.string, None),
     }, extra=vol.ALLOW_EXTRA)
 
     register_user_schema = vol.Schema({
         vol.Required("contact_id"): cv.string,
-        vol.Optional("name"): cv.string,
+        vol.Optional("name"): vol.Any(cv.string, None),
     }, extra=vol.ALLOW_EXTRA)
 
     unregister_user_schema = vol.Schema({
