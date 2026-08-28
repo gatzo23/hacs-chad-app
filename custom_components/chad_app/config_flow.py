@@ -69,7 +69,7 @@ class ChadAppConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if not user_input.get(CONF_ROOM_ID, "").strip():
                 user_input[CONF_ROOM_ID] = "homeassistant_bot"
 
-            return self.async_create_entry(title="Chad App", data=user_input)
+            return self.async_create_entry(title="Adlos", data=user_input)
 
         data_schema = vol.Schema({
             vol.Required(CONF_HA_URL, default=""): str,

@@ -2,8 +2,8 @@
   "config": {
     "step": {
       "user": {
-        "title": "Adlos / Chad App einrichten",
-        "description": "Gib die Verbindungsdaten für deine Adlos / Chad App ein.",
+        "title": "Adlos einrichten",
+        "description": "Gib die Verbindungsdaten für deine Adlos Integration ein.",
         "data": {
           "ha_url": "Home Assistant Instanz-Adresse (z.B. https://homey.org)",
           "token": "Home Assistant Langlebiger Zugriffstoken (Optional)",

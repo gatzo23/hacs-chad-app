@@ -471,8 +471,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         except Exception:
             pass
 
-    # Forward notify platform setup so notify.adlos / notify.chad_app entity is created
-    await hass.config_entries.async_forward_entry_setups(entry, ["notify"])
+    # Forward platform setups (notify & image QR code entity)
+    await hass.config_entries.async_forward_entry_setups(entry, ["notify", "image"])
 
     # Create Pairing QR Code and Notification
     try:
