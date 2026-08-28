@@ -116,7 +116,7 @@ register_user:
         text: {}
     name:
       name: User Name
-      description: Optional display name for the user (allows addressing the user via target: "Name").
+      description: "Optional display name for the user (allows addressing the user via target: 'Name')."
       required: false
       example: "Kai"
       selector:
