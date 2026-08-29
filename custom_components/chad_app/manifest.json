@@ -1,7 +1,7 @@
 {
   "domain": "chad_app",
   "name": "Adlos",
-  "version": "1.4.3",
+  "version": "1.4.4",
   "documentation": "https://github.com/gatzo23/hacs-chad-app",
   "dependencies": ["webhook"],
   "codeowners": ["@gatzo23"],

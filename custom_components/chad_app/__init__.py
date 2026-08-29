@@ -73,15 +73,12 @@ def decode_key_bytes(key_str: str) -> bytes:
         return hashlib.sha256(normalized.encode("utf-8")).digest()
 
 
-def encrypt_text(plain_text: str, room_id: str = "homeassistant_bot", key_bytes: bytes | None = None) -> str:
+def encrypt_text(plain_text: str, key_bytes: bytes | None = None, room_id: str = "homeassistant_bot") -> str:
     """Verschlüsselt Klartext mit AES-256-CBC und liefert iv_base64:ciphertext_base64 zurück."""
     if not plain_text:
         return ""
 
-    if key_bytes is None:
-        key = derive_room_key(room_id)
-    elif len(key_bytes) != 32:
-        _LOGGER.warning("ADLOS_E2EE: Invalid key length (%s bytes), using deterministic key for room %s", len(key_bytes), room_id)
+    if key_bytes is None or len(key_bytes) != 32:
         key = derive_room_key(room_id)
     else:
         key = key_bytes
@@ -199,7 +196,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             headers["Authorization"] = f"Bearer {token}"
 
         key_bytes = _resolve_room_key(target_room, custom_key)
-        encrypted_text = encrypt_text(text, key_bytes)
+        encrypted_text = encrypt_text(text, key_bytes=key_bytes, room_id=target_room)
 
         payload = {
             "room": target_room,
@@ -248,7 +245,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             return False
 
         encrypted_file_bytes = encrypt_bytes(raw_bytes, key_bytes)
-        encrypted_text = encrypt_text(text, key_bytes) if text else ""
+        encrypted_text = encrypt_text(text, key_bytes=key_bytes, room_id=target_room) if text else ""
 
         filename = os.path.basename(file_path)
         _LOGGER.debug("ADLOS_REST: Sending encrypted photo (%s bytes) to room %s", len(encrypted_file_bytes), target_room)
@@ -446,7 +443,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Primary room and encryption for SSE and backlog
         primary_room = target_rooms[0] if len(target_rooms) == 1 else (default_room or "homeassistant_bot")
         sse_key_bytes = _resolve_room_key(primary_room, custom_key)
-        encrypted_text = encrypt_text(text, room_id=primary_room, key_bytes=sse_key_bytes) if text else ""
+        encrypted_text = encrypt_text(text, key_bytes=sse_key_bytes, room_id=primary_room) if text else ""
 
         # Broadcast to SSE subscribers and update backlog
         store = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
@@ -531,7 +528,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Primary room and encryption for SSE and backlog
         primary_room = target_rooms[0] if len(target_rooms) == 1 else (default_room or "homeassistant_bot")
         sse_key_bytes = _resolve_room_key(primary_room, custom_key)
-        encrypted_text = encrypt_text(text, room_id=primary_room, key_bytes=sse_key_bytes) if text else ""
+        encrypted_text = encrypt_text(text, key_bytes=sse_key_bytes, room_id=primary_room) if text else ""
 
         store = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
         if store:
