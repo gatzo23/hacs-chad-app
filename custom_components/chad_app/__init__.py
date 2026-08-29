@@ -715,9 +715,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     for wid in webhook_ids:
         try:
             from homeassistant.components import webhook
-            webhook.async_register(hass, DOMAIN, f"Adlos Pairing ({wid})", wid, handle_pairing_webhook)
-        except Exception:
-            pass
+            webhook.async_register(
+                hass,
+                DOMAIN,
+                f"Adlos Pairing ({wid})",
+                wid,
+                handle_pairing_webhook,
+                allowed_methods={"GET", "POST"},
+            )
+        except Exception as err:
+            _LOGGER.debug("Could not register webhook %s: %s", wid, err)
 
     async def register_user(call: ServiceCall):
         """Service to register a user contact_id into target_contacts and registered_users."""
@@ -850,7 +857,7 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     # Unregister webhooks
-    webhook_ids = [f"adlos_pairing_{entry.entry_id}", "adlos_pairing", "adlos_register_user"]
+    webhook_ids = [f"adlos_pairing_{entry.entry_id}", "adlos_pairing", "adlos_register_user", "adlos_stream"]
     for wid in webhook_ids:
         try:
             from homeassistant.components import webhook
