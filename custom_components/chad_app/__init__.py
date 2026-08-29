@@ -292,19 +292,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         return [str(raw_input).strip()]
 
     def _resolve_target_rooms(specified_targets: list[str], explicit_room: str | None = None) -> list[str]:
-        """Maps user names, contact IDs, or room names to deterministic room IDs."""
+        """Maps user names, contact IDs, or room names to strict private 1:1 room IDs."""
         if explicit_room and str(explicit_room).strip() and str(explicit_room).strip() != "homeassistant_bot":
             return [str(explicit_room).strip()]
 
+        reg_users = hass.data[DOMAIN].get(entry.entry_id, {}).get("registered_users", {})
         targets = specified_targets
         if not targets:
             targets = _parse_recipients(target_contacts_raw)
 
-        if not targets:
-            # Fallback to default room (standard: "homeassistant_bot")
-            return [explicit_room or default_room or "homeassistant_bot"]
+        if not targets and reg_users:
+            targets = list(reg_users.keys())
 
-        reg_users = hass.data[DOMAIN].get(entry.entry_id, {}).get("registered_users", {})
         target_rooms = []
 
         for rec in targets:
@@ -313,10 +312,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             rec_str = str(rec).strip()
             if rec_str.startswith("room:"):
                 target_rooms.append(rec_str[5:].strip())
-            elif rec_str == bot_id or rec_str == "homeassistant_bot":
-                target_rooms.append(rec_str)
             else:
-                # Check registered users by name (case-insensitive) or contact_id
+                # 1. Look up by contact_id or name in registered_users
                 matched_cid = None
                 for cid, uinfo in reg_users.items():
                     if rec_str.lower() == cid.lower() or rec_str.lower() == str(uinfo.get("name", "")).lower():
@@ -324,16 +321,30 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         break
 
                 if matched_cid:
-                    target_rooms.append(derive_room_id(bot_id, matched_cid))
+                    target_room = derive_room_id(bot_id, matched_cid)
+                    target_rooms.append(target_room)
                 elif len(rec_str) == 15 and re.match(r'^[a-zA-Z0-9]{15}$', rec_str):
                     # Valid 15-character PocketBase contact ID
-                    target_rooms.append(derive_room_id(bot_id, rec_str))
+                    target_room = derive_room_id(bot_id, rec_str)
+                    target_rooms.append(target_room)
                 else:
-                    # User name or target not mapped to a 15-char contact ID -> fallback to standard bot room
-                    _LOGGER.info("ADLOS: Target '%s' mapped to standard bot room '%s'", rec_str, default_room or "homeassistant_bot")
-                    target_rooms.append(default_room or "homeassistant_bot")
+                    # 2. Case-insensitive substring match among registered users
+                    for cid, uinfo in reg_users.items():
+                        uname = str(uinfo.get("name", "")).lower()
+                        if uname and (rec_str.lower() in uname or uname in rec_str.lower()):
+                            matched_cid = cid
+                            break
+                    if matched_cid:
+                        target_room = derive_room_id(bot_id, matched_cid)
+                        target_rooms.append(target_room)
+                    elif reg_users:
+                        _LOGGER.warning("ADLOS: Target '%s' could not be resolved directly, routing to all private registered rooms", rec_str)
+                        for cid in reg_users:
+                            target_rooms.append(derive_room_id(bot_id, cid))
+                    else:
+                        _LOGGER.warning("ADLOS: Could not resolve target '%s' to a private 1:1 contact room", rec_str)
 
-        return list(dict.fromkeys(target_rooms)) if target_rooms else [default_room or "homeassistant_bot"]
+        return list(dict.fromkeys(target_rooms))
 
     def _extract_params(call: ServiceCall):
         data = call.data
@@ -452,8 +463,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         msg_id = call_data.get("id") or extra_data.get("id") or f"ha_{int(time.time() * 1000)}_{secrets.token_hex(4)}"
         now_ts = int(time.time() * 1000)
 
+        if not target_rooms:
+            _LOGGER.warning("ADLOS: Cannot send message - no valid private target room resolved")
+            return
+
         # Primary room and encryption for SSE and backlog
-        primary_room = target_rooms[0] if len(target_rooms) == 1 else (default_room or "homeassistant_bot")
+        primary_room = target_rooms[0]
         sse_key_bytes = _resolve_room_key(primary_room, custom_key)
         encrypted_text = encrypt_text(text, key_bytes=sse_key_bytes, room_id=primary_room) if text else ""
 
@@ -549,8 +564,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         msg_id = call_data.get("id") or extra_data.get("id") or f"ha_{int(time.time() * 1000)}_{secrets.token_hex(4)}"
         now_ts = int(time.time() * 1000)
 
+        if not target_rooms:
+            _LOGGER.warning("ADLOS: Cannot send photo - no valid private target room resolved")
+            return
+
         # Primary room and encryption for SSE and backlog
-        primary_room = target_rooms[0] if len(target_rooms) == 1 else (default_room or "homeassistant_bot")
+        primary_room = target_rooms[0]
         sse_key_bytes = _resolve_room_key(primary_room, custom_key)
         encrypted_text = encrypt_text(text, key_bytes=sse_key_bytes, room_id=primary_room) if text else ""
 
