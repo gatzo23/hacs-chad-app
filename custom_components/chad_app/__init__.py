@@ -42,9 +42,15 @@ def derive_room_id(id_a: str, id_b: str) -> str:
     return clean[:15]
 
 
-def derive_deterministic_room_key(room_id: str) -> bytes:
-    """Derives a deterministic 32-byte AES key from room_id (SHA-256 of 'adlos_e2ee_secret_v1_<roomId>')."""
-    return hashlib.sha256(f"adlos_e2ee_secret_v1_{room_id}".encode("utf-8")).digest()
+def derive_room_key(room_id: str = "homeassistant_bot") -> bytes:
+    """Leitet den 32-Byte AES-256 Schlüssel deterministisch ab."""
+    secret_str = f"adlos_e2ee_secret_v1_{room_id}"
+    return hashlib.sha256(secret_str.encode("utf-8")).digest()
+
+
+def derive_deterministic_room_key(room_id: str = "homeassistant_bot") -> bytes:
+    """Alias for derive_room_key for backwards compatibility."""
+    return derive_room_key(room_id)
 
 
 def decode_key_bytes(key_str: str) -> bytes:
@@ -67,29 +73,31 @@ def decode_key_bytes(key_str: str) -> bytes:
         return hashlib.sha256(normalized.encode("utf-8")).digest()
 
 
-def encrypt_text(plain_text: str, key_bytes: bytes) -> str:
-    """Encrypts plain text using AES-256-CBC with PKCS7 padding and a random 16-byte IV.
-    
-    Output format: iv_base64:ciphertext_base64
-    """
+def encrypt_text(plain_text: str, room_id: str = "homeassistant_bot", key_bytes: bytes | None = None) -> str:
+    """Verschlüsselt Klartext mit AES-256-CBC und liefert iv_base64:ciphertext_base64 zurück."""
     if not plain_text:
-        return plain_text
-    if not key_bytes or len(key_bytes) != 32:
-        _LOGGER.warning("ADLOS_E2EE: Invalid key length (%s bytes), sending unencrypted text", len(key_bytes) if key_bytes else 0)
-        return plain_text
+        return ""
+
+    if key_bytes is None:
+        key = derive_room_key(room_id)
+    elif len(key_bytes) != 32:
+        _LOGGER.warning("ADLOS_E2EE: Invalid key length (%s bytes), using deterministic key for room %s", len(key_bytes), room_id)
+        key = derive_room_key(room_id)
+    else:
+        key = key_bytes
 
     try:
         iv = os.urandom(16)
         padder = padding.PKCS7(128).padder()
         padded_data = padder.update(plain_text.encode("utf-8")) + padder.finalize()
 
-        cipher = Cipher(algorithms.AES(key_bytes), modes.CBC(iv), backend=default_backend())
+        cipher = Cipher(algorithms.AES(key), modes.CBC(iv), backend=default_backend())
         encryptor = cipher.encryptor()
         ciphertext = encryptor.update(padded_data) + encryptor.finalize()
 
-        iv_b64 = base64.b64encode(iv).decode("ascii")
-        ct_b64 = base64.b64encode(ciphertext).decode("ascii")
-        return f"{iv_b64}:{ct_b64}"
+        iv_b64 = base64.b64encode(iv).decode("utf-8")
+        cipher_b64 = base64.b64encode(ciphertext).decode("utf-8")
+        return f"{iv_b64}:{cipher_b64}"
     except Exception as err:
         _LOGGER.error("ADLOS_E2EE: Text encryption failed: %s", err)
         return plain_text
@@ -435,17 +443,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         msg_id = call_data.get("id") or extra_data.get("id") or f"ha_{int(time.time() * 1000)}_{secrets.token_hex(4)}"
         now_ts = int(time.time() * 1000)
 
+        # Primary room and encryption for SSE and backlog
+        primary_room = target_rooms[0] if len(target_rooms) == 1 else (default_room or "homeassistant_bot")
+        sse_key_bytes = _resolve_room_key(primary_room, custom_key)
+        encrypted_text = encrypt_text(text, room_id=primary_room, key_bytes=sse_key_bytes) if text else ""
+
         # Broadcast to SSE subscribers and update backlog
         store = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
         if store:
             payload = {
                 "id": msg_id,
-                "room": target_rooms[0] if len(target_rooms) == 1 else "homeassistant_bot",
+                "room": primary_room,
                 "sender": "Home Assistant",
                 "type": msg_type,
                 "title": extra_fields.get("title") or "Home Assistant",
-                "message": text,
-                "text": text,
+                "message": encrypted_text,
+                "text": encrypted_text,
                 "targets": extra_fields.get("targets", []),
                 "target": extra_fields.get("target"),
                 "timestamp": now_ts,
@@ -515,16 +528,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         msg_id = call_data.get("id") or extra_data.get("id") or f"ha_{int(time.time() * 1000)}_{secrets.token_hex(4)}"
         now_ts = int(time.time() * 1000)
 
+        # Primary room and encryption for SSE and backlog
+        primary_room = target_rooms[0] if len(target_rooms) == 1 else (default_room or "homeassistant_bot")
+        sse_key_bytes = _resolve_room_key(primary_room, custom_key)
+        encrypted_text = encrypt_text(text, room_id=primary_room, key_bytes=sse_key_bytes) if text else ""
+
         store = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
         if store:
             payload = {
                 "id": msg_id,
-                "room": target_rooms[0] if len(target_rooms) == 1 else "homeassistant_bot",
+                "room": primary_room,
                 "sender": "Home Assistant",
                 "type": "image",
                 "title": extra_fields.get("title") or "Home Assistant",
-                "message": text,
-                "text": text,
+                "message": encrypted_text,
+                "text": encrypted_text,
                 "targets": extra_fields.get("targets", []),
                 "target": extra_fields.get("target"),
                 "timestamp": now_ts,

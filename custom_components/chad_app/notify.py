@@ -69,86 +69,29 @@ class AdlosChadNotifyEntity(NotifyEntity):
             else:
                 target_list = [str(targets).strip()]
 
-        # 3. Eindeutige Message-ID & Timestamp (Millisekunden)
+        # 3. Eindeutige Message-ID
         msg_id = data.get("id") or f"ha_{int(time.time() * 1000)}_{secrets.token_hex(4)}"
-        now_ts = int(time.time() * 1000)
 
-        # 4. Leichtgewichtige Bild- und Kameraübertragung (keine riesigen Base64-Strings im SSE-Stream)
+        # 4. Bild- und Kameraübertragung
         camera_entity = data.get("camera") or data.get("camera_entity")
         if not camera_entity and data.get("entity_id") and str(data.get("entity_id")).startswith("camera."):
             camera_entity = data.get("entity_id")
 
         image_url = None
-        attachment = None
         raw_image = data.get("image") or data.get("url") or data.get("path") or data.get("file_path")
 
         if camera_entity:
             proxy_url = f"/api/camera_proxy/{camera_entity}"
             image_url = proxy_url
-            attachment = {
-                "type": "image",
-                "url": proxy_url,
-                "camera": camera_entity,
-            }
-            msg_type = "image"
         elif raw_image:
             image_url = str(raw_image).strip()
-            attachment = {
-                "type": "image",
-                "url": image_url,
-            }
-            msg_type = "image"
-        elif data.get("video") or data.get("video_path"):
-            msg_type = "video"
-        else:
-            msg_type = data.get("type") or "text"
 
-        payload = {
-            "id": msg_id,
-            "room": room_id,
-            "sender": "Home Assistant",
-            "type": msg_type,
-            "title": title or "Home Assistant",
-            "message": message,
-            "text": message,
-            "targets": target_list,
-            "target": targets,
-            "token": self.secret_token,
-            "webhook_id": self.webhook_id,
-            "timestamp": now_ts,
-        }
-
-        if image_url:
-            payload["image"] = image_url
-        if attachment:
-            payload["attachment"] = attachment
-        if camera_entity:
-            payload["camera"] = camera_entity
-
-        # 5. Sichere SSE-Zustellung & Backlog-Speicherung (letzte 50 Nachrichten)
-        store = self.hass.data.get(DOMAIN, {}).get(self.entry.entry_id, {})
-        if store:
-            messages_list = store.setdefault("messages", [])
-            messages_list.append(payload)
-            if len(messages_list) > 50:
-                del messages_list[:-50]
-
-            subscribers = list(store.get("subscribers", set()))
-            if subscribers:
-                sse_data = f"data: {json.dumps(payload)}\n\n".encode("utf-8")
-                for resp in subscribers:
-                    try:
-                        asyncio.create_task(resp.write(sse_data))
-                    except Exception as err:
-                        _LOGGER.debug("Error writing to SSE subscriber: %s", err)
-
-        # 6. Kombinierte Daten an Service weiterleiten (ohne None-Werte)
-        combined_data = {**data, **payload}
+        # 5. Weiterleitung an send_message Service (übernimmt E2EE-Verschlüsselung, SSE-Stream, Backlog & REST-Dispatch)
         call_data = {
             "id": msg_id,
             "message": str(message or ""),
             "room": room_id,
-            "data": combined_data,
+            "data": data,
         }
         if title is not None:
             call_data["title"] = str(title)
@@ -199,79 +142,26 @@ class AdlosUserNotifyEntity(NotifyEntity):
         data.setdefault("room", "homeassistant_bot")
 
         msg_id = data.get("id") or f"ha_{int(time.time() * 1000)}_{secrets.token_hex(4)}"
-        now_ts = int(time.time() * 1000)
 
         camera_entity = data.get("camera") or data.get("camera_entity")
         if not camera_entity and data.get("entity_id") and str(data.get("entity_id")).startswith("camera."):
             camera_entity = data.get("entity_id")
 
         image_url = None
-        attachment = None
         raw_image = data.get("image") or data.get("url") or data.get("path") or data.get("file_path")
 
         if camera_entity:
             proxy_url = f"/api/camera_proxy/{camera_entity}"
             image_url = proxy_url
-            attachment = {
-                "type": "image",
-                "url": proxy_url,
-                "camera": camera_entity,
-            }
-            msg_type = "image"
         elif raw_image:
             image_url = str(raw_image).strip()
-            attachment = {
-                "type": "image",
-                "url": image_url,
-            }
-            msg_type = "image"
-        else:
-            msg_type = data.get("type") or "text"
-
-        payload = {
-            "id": msg_id,
-            "room": "homeassistant_bot",
-            "sender": "Home Assistant",
-            "type": msg_type,
-            "title": title or "Home Assistant",
-            "message": message,
-            "text": message,
-            "targets": [self.contact_id],
-            "target": self.contact_id,
-            "token": self.secret_token,
-            "webhook_id": self.webhook_id,
-            "timestamp": now_ts,
-        }
-
-        if image_url:
-            payload["image"] = image_url
-        if attachment:
-            payload["attachment"] = attachment
-        if camera_entity:
-            payload["camera"] = camera_entity
-
-        store = self.hass.data.get(DOMAIN, {}).get(self.entry.entry_id, {})
-        if store:
-            messages_list = store.setdefault("messages", [])
-            messages_list.append(payload)
-            if len(messages_list) > 50:
-                del messages_list[:-50]
-
-            subscribers = list(store.get("subscribers", set()))
-            if subscribers:
-                sse_data = f"data: {json.dumps(payload)}\n\n".encode("utf-8")
-                for resp in subscribers:
-                    try:
-                        asyncio.create_task(resp.write(sse_data))
-                    except Exception as err:
-                        _LOGGER.debug("Error writing to SSE subscriber: %s", err)
 
         call_data = {
             "id": msg_id,
             "message": str(message or ""),
             "target": self.contact_id,
             "targets": [self.contact_id],
-            "data": {**data, **payload},
+            "data": data,
         }
         if title is not None:
             call_data["title"] = str(title)
