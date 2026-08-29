@@ -417,6 +417,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if not camera_entity and call_data.get("entity_id") and str(call_data.get("entity_id")).startswith("camera."):
             camera_entity = call_data.get("entity_id")
 
+        if camera_entity and not file_path:
+            try:
+                from homeassistant.components.camera import async_get_image
+                image_data = await async_get_image(hass, camera_entity)
+                if image_data and image_data.content:
+                    import tempfile
+                    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tf:
+                        tf.write(image_data.content)
+                        file_path = tf.name
+            except Exception as err:
+                _LOGGER.error("ADLOS_REST: Failed to snapshot camera '%s': %s", camera_entity, err)
+
         image_url = None
         attachment = None
         raw_img = call_data.get("image") or extra_data.get("image") or call_data.get("url") or extra_data.get("url")
@@ -506,6 +518,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         camera_entity = call_data.get("camera") or extra_data.get("camera") or call_data.get("camera_entity") or extra_data.get("camera_entity")
         if not camera_entity and call_data.get("entity_id") and str(call_data.get("entity_id")).startswith("camera."):
             camera_entity = call_data.get("entity_id")
+
+        if camera_entity and not file_path:
+            try:
+                from homeassistant.components.camera import async_get_image
+                image_data = await async_get_image(hass, camera_entity)
+                if image_data and image_data.content:
+                    import tempfile
+                    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tf:
+                        tf.write(image_data.content)
+                        file_path = tf.name
+            except Exception as err:
+                _LOGGER.error("ADLOS_REST: Failed to snapshot camera '%s': %s", camera_entity, err)
 
         image_url = None
         attachment = None
