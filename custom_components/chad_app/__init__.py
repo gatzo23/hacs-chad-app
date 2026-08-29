@@ -313,30 +313,29 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             if rec_str.startswith("room:"):
                 target_rooms.append(rec_str[5:].strip())
             else:
-                # 1. Look up by contact_id or name in registered_users
-                matched_cid = None
+                # 1. Exact match: Sammle alle passenden Kontakt-IDs für den Namen / die ID
+                matched_cids = []
                 for cid, uinfo in reg_users.items():
                     if rec_str.lower() == cid.lower() or rec_str.lower() == str(uinfo.get("name", "")).lower():
-                        matched_cid = cid
-                        break
+                        matched_cids.append(cid)
 
-                if matched_cid:
-                    target_room = derive_room_id(bot_id, matched_cid)
-                    target_rooms.append(target_room)
+                if matched_cids:
+                    for cid in matched_cids:
+                        target_rooms.append(derive_room_id(bot_id, cid))
                 elif len(rec_str) == 15 and re.match(r'^[a-zA-Z0-9]{15}$', rec_str):
-                    # Valid 15-character PocketBase contact ID
-                    target_room = derive_room_id(bot_id, rec_str)
-                    target_rooms.append(target_room)
+                    # Direkte 15-stellige Kontakt-ID
+                    target_rooms.append(derive_room_id(bot_id, rec_str))
                 else:
                     # 2. Case-insensitive substring match among registered users
+                    sub_matched_cids = []
                     for cid, uinfo in reg_users.items():
                         uname = str(uinfo.get("name", "")).lower()
                         if uname and (rec_str.lower() in uname or uname in rec_str.lower()):
-                            matched_cid = cid
-                            break
-                    if matched_cid:
-                        target_room = derive_room_id(bot_id, matched_cid)
-                        target_rooms.append(target_room)
+                            sub_matched_cids.append(cid)
+
+                    if sub_matched_cids:
+                        for cid in sub_matched_cids:
+                            target_rooms.append(derive_room_id(bot_id, cid))
                     elif reg_users:
                         _LOGGER.warning("ADLOS: Target '%s' could not be resolved directly, routing to all private registered rooms", rec_str)
                         for cid in reg_users:
