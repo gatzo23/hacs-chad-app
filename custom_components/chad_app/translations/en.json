@@ -3,17 +3,19 @@
     "step": {
       "user": {
         "title": "Set up Adlos",
-        "description": "Enter the connection details for your Adlos instance.",
+        "description": "Configure the server and name for Home Assistant in the Adlos App.",
         "data": {
-          "ha_url": "Home Assistant Instance Address (e.g. https://homey.org)",
-          "token": "Home Assistant Long-Lived Access Token (Optional)",
-          "url": "PocketBase Server URL (e.g. https://pocket.nextbee.org or up to /api)",
-          "room_id": "Default Room ID (Optional, Default: homeassistant_bot)"
+          "server_url": "PocketBase Server URL (Default: https://pocket.nextbee.org)",
+          "bot_name": "Bot / Contact Name (Default: Home Assistant)"
         }
+      },
+      "pair": {
+        "title": "Pair with Adlos",
+        "description": "Scan this QR code using your Adlos app on your smartphone (**Add Contact -> Scan QR Code**):\n\n{qr_image}\n\n- **Bot ID:** `{bot_id}`\n- **Name:** `{bot_name}`\n- **Server:** `{server_url}`"
       }
     },
     "error": {
-      "cannot_connect": "Failed to connect"
+      "cannot_connect": "Connection failed"
     },
     "abort": {
       "already_configured": "Device is already configured"
@@ -22,58 +24,53 @@
   "options": {
     "step": {
       "init": {
-        "title": "Adlos Options",
-        "description": "Update target contacts and settings.",
+        "title": "Adlos Settings & QR Code",
+        "description": "Paired contacts: **{users_count}**\n\nScan this QR code with additional smartphones:\n\n{qr_image}",
         "data": {
-          "target_contacts": "Target Contact IDs (comma-separated)",
-          "bot_id": "Bot ID",
-          "encryption_key": "Encryption Key (Optional)"
+          "server_url": "PocketBase Server URL",
+          "bot_name": "Bot / Contact Name"
         }
       }
     }
   },
   "services": {
     "send_message": {
-      "name": "Send Message",
-      "description": "Sends an encrypted text message or photo to one or multiple Adlos users.",
+      "name": "Send message",
+      "description": "Sends an end-to-end encrypted message or camera snapshot to Adlos users.",
       "fields": {
         "message": {
           "name": "Message",
-          "description": "The main message text to send."
+          "description": "The message body."
         },
         "title": {
           "name": "Title",
           "description": "Optional title for the notification."
         },
         "target": {
-          "name": "Target",
-          "description": "User Name(s), Contact ID(s) or Room name(s)."
-        },
-        "room": {
-          "name": "Room",
-          "description": "Optional explicit room override (default: homeassistant_bot)."
+          "name": "Target / Recipient",
+          "description": "User name, contact ID, or room. If empty, sends to all paired users."
         },
         "camera": {
           "name": "Camera Entity",
-          "description": "Optional camera entity (e.g. camera.hauseingang) for live snapshot delivery."
+          "description": "Optional camera entity (e.g. camera.front_door) for snapshot delivery."
         },
         "image": {
           "name": "Image Path / URL",
-          "description": "Optional local path or URL (e.g. /config/www/snapshot.jpg or https://...)."
+          "description": "Optional local file path or URL."
         },
         "encryption_key": {
           "name": "Encryption Key",
-          "description": "Optional custom encryption key."
+          "description": "Optional custom AES key override."
         }
       }
     },
     "send_photo": {
-      "name": "Send Photo",
-      "description": "Sends an encrypted photo to one or multiple Adlos users.",
+      "name": "Send photo",
+      "description": "Sends an end-to-end encrypted photo to Adlos users.",
       "fields": {
         "message": {
-          "name": "Caption / Text",
-          "description": "Optional text to accompany the photo."
+          "name": "Caption / Message",
+          "description": "Optional caption for the photo."
         },
         "title": {
           "name": "Title",
@@ -81,7 +78,7 @@
         },
         "camera": {
           "name": "Camera Entity",
-          "description": "Optional camera entity (e.g. camera.hauseingang) for snapshot delivery."
+          "description": "Optional camera entity for automatic snapshot delivery."
         },
         "path": {
           "name": "File Path",
@@ -89,48 +86,41 @@
         },
         "image": {
           "name": "Image Path / URL",
-          "description": "Alternative parameter for image file path or URL."
+          "description": "Alternative parameter for image path or URL."
         },
         "target": {
-          "name": "Target",
-          "description": "User Name(s), Contact ID(s) or Room name(n)."
-        },
-        "room": {
-          "name": "Room",
-          "description": "Optional explicit room override (default: homeassistant_bot)."
-        },
-        "encryption_key": {
-          "name": "Encryption Key",
-          "description": "Optional custom encryption key."
+          "name": "Target / Recipient",
+          "description": "User name, contact ID, or room."
         }
       }
     },
     "register_user": {
       "name": "Register User",
-      "description": "Registers an Adlos user Contact ID and name for notifications (e.g. called upon QR code scan).",
+      "description": "Manually registers an Adlos contact ID.",
       "fields": {
         "contact_id": {
           "name": "Contact ID",
-          "description": "The 15-character Adlos contact ID of the user."
+          "description": "15-character Adlos Contact ID."
         },
         "name": {
           "name": "User Name",
-          "description": "Optional display name of the user."
+          "description": "Optional display name."
+        },
+        "room_key": {
+          "name": "Room Key (E2EE)",
+          "description": "Optional Base64 AES key for E2EE."
         }
       }
     },
     "unregister_user": {
       "name": "Unregister User",
-      "description": "Removes an Adlos Contact ID from the registered recipients.",
+      "description": "Removes a paired Adlos contact.",
       "fields": {
         "contact_id": {
           "name": "Contact ID",
-          "description": "The Contact ID to remove."
+          "description": "Contact ID to remove."
         }
       }
     }
   }
 }
-
-
-

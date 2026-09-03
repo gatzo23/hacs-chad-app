@@ -1,14 +1,14 @@
-# Service definitions for Chad App / Adlos Integration
+# Service definitions for Adlos Integration
 
 send_message:
   name: Send message via Adlos
-  description: Sends an end-to-end encrypted notification text message or photo to Adlos users, registered contacts, or specific rooms.
+  description: Sends an end-to-end encrypted notification text message or camera snapshot to paired Adlos users.
   fields:
     message:
       name: Message / Text
       description: The main message text to send.
       required: true
-      example: "Die Waschmaschine ist fertig!"
+      example: "Die Waschmaschine ist fertig! 🧺"
       selector:
         text:
           multiline: true
@@ -21,35 +21,29 @@ send_message:
         text: {}
     target:
       name: Target / Recipient(s)
-      description: "Optional recipient(s). Can be a registered user name (e.g. 'Kai'), a list of names/IDs (e.g. ['Kai', 'Eltern']), a 15-character PocketBase contact ID, or a room name prefixed with 'room:' (e.g. 'room:homeassistant_bot'). If omitted, sends to all configured target contacts or 'homeassistant_bot'."
+      description: "Optional recipient(s). Can be a paired user name (e.g. 'Kai'), a 15-character PocketBase contact ID, or a room name prefixed with 'room:'. If omitted, sends to all paired users."
       required: false
       example: "Kai"
       selector:
         text: {}
-    room:
-      name: Room Override
-      description: "Optional explicit room override. By default, 'homeassistant_bot' is used."
-      required: false
-      example: "homeassistant_bot"
-      selector:
-        text: {}
     camera:
       name: Camera Entity
-      description: "Optional camera entity (e.g. camera.hauseingang) for lightweight snapshot delivery via proxy URL."
+      description: "Optional camera entity (e.g. camera.haustuer) for automatic live snapshot delivery."
       required: false
-      example: "camera.hauseingang"
+      example: "camera.haustuer"
       selector:
-        text: {}
+        entity:
+          domain: camera
     image:
       name: Image / Photo Path or URL
-      description: "Optional local path (/config/www/snapshot.jpg) or image URL (https://... or /local/snapshot.jpg)."
+      description: "Optional local path (/config/www/snapshot.jpg) or image URL."
       required: false
       example: "/config/www/snapshot.jpg"
       selector:
         text: {}
     encryption_key:
       name: Encryption Key
-      description: Optional custom Base64/passphrase encryption key override.
+      description: Optional custom AES encryption key override.
       required: false
       example: "adlos_custom_secret"
       selector:
@@ -57,13 +51,13 @@ send_message:
 
 send_photo:
   name: Send photo via Adlos
-  description: Sends an end-to-end encrypted photo image file to one or multiple Adlos users, registered contacts, or rooms.
+  description: Sends an end-to-end encrypted photo image file to paired Adlos users.
   fields:
     message:
       name: Caption / Text
       description: Optional text message or caption for the photo.
       required: false
-      example: "Bewegung an der Auffahrt"
+      example: "Bewegung an der Haustür"
       selector:
         text:
           multiline: true
@@ -71,16 +65,17 @@ send_photo:
       name: Title
       description: Optional title for the photo.
       required: false
-      example: "Kamera Auffahrt"
+      example: "Kamera Haustür"
       selector:
         text: {}
     camera:
       name: Camera Entity
-      description: "Optional camera entity (e.g. camera.hauseingang) for snapshot delivery."
+      description: "Optional camera entity (e.g. camera.haustuer) for snapshot delivery."
       required: false
-      example: "camera.hauseingang"
+      example: "camera.haustuer"
       selector:
-        text: {}
+        entity:
+          domain: camera
     path:
       name: Image File Path
       description: Optional local path to the image file on Home Assistant (e.g. /config/www/snapshot.jpg).
@@ -97,29 +92,15 @@ send_photo:
         text: {}
     target:
       name: Target / Recipient(s)
-      description: "Optional recipient(s). Can be a registered user name (e.g. 'Kai'), a list of names/IDs (e.g. ['Kai', 'Eltern']), a 15-character contact ID, or a room prefixed with 'room:'. If omitted, sends to all configured contacts."
+      description: "Optional recipient(s). If omitted, sends to all paired contacts."
       required: false
       example: "Kai"
-      selector:
-        text: {}
-    room:
-      name: Room Override
-      description: "Optional explicit room override. By default, 'homeassistant_bot' is used."
-      required: false
-      example: "homeassistant_bot"
-      selector:
-        text: {}
-    encryption_key:
-      name: Encryption Key
-      description: Optional custom Base64/passphrase encryption key override.
-      required: false
-      example: "adlos_custom_secret"
       selector:
         text: {}
 
 register_user:
   name: Register User Contact
-  description: Registers a user contact ID and display name for multi-user notifications and target resolution (e.g. called automatically upon QR code scan).
+  description: Manually registers an Adlos contact ID and display name.
   fields:
     contact_id:
       name: Contact ID
@@ -130,15 +111,21 @@ register_user:
         text: {}
     name:
       name: User Name
-      description: "Optional display name for the user (allows addressing the user via target: 'Name')."
+      description: "Optional display name for the user."
       required: false
       example: "Kai"
+      selector:
+        text: {}
+    room_key:
+      name: Room Key (E2EE)
+      description: "Optional Base64 AES encryption key for E2EE."
+      required: false
       selector:
         text: {}
 
 unregister_user:
   name: Unregister User Contact
-  description: Removes a user contact ID from the registered target contacts and user list.
+  description: Removes an Adlos contact ID from the paired user list.
   fields:
     contact_id:
       name: Contact ID
@@ -147,6 +134,3 @@ unregister_user:
       example: "a1b2c3d4e5f6789"
       selector:
         text: {}
-
-
-

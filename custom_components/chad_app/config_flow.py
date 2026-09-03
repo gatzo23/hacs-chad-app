@@ -1,81 +1,90 @@
+"""Config and Options Flow for Adlos / Chad App integration."""
+
 import os
+import io
 import time
 import json
+import base64
+import secrets
 import voluptuous as vol
+
 from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.components import persistent_notification
+
 from .const import (
     DOMAIN,
-    CONF_URL,
-    CONF_TOKEN,
-    CONF_ROOM_ID,
+    DEFAULT_SERVER_URL,
+    DEFAULT_BOT_NAME,
+    CONF_SERVER_URL,
+    CONF_BOT_NAME,
     CONF_BOT_ID,
+    CONF_PAIRED_USERS,
+    CONF_ROOM_ID,
     CONF_TARGET_CONTACTS,
-    CONF_ENCRYPTION_KEY,
-    CONF_HA_URL,
+    CONF_URL,
 )
+from .pocketbase_listener import get_clean_base_url
 
 
-def normalize_pocketbase_url(raw_url: str) -> str:
-    """Normalizes PocketBase URL by automatically appending /api/collections/messages/records."""
-    url = (raw_url or "").strip()
-    if not url:
-        return "https://pocket.nextbee.org/api/collections/messages/records"
-    if not url.startswith("http://") and not url.startswith("https://"):
-        url = f"https://{url}"
-    url = url.rstrip("/")
-    if url.endswith("/api/collections/messages/records") or url.endswith("/records"):
-        return url
-    if url.endswith("/api/collections/messages"):
-        return f"{url}/records"
-    if url.endswith("/api"):
-        return f"{url}/collections/messages/records"
-    return f"{url}/api/collections/messages/records"
+def generate_bot_id() -> str:
+    """Generates a persistent 15-character bot ID (ha_ + 12 hex characters)."""
+    return f"ha_{secrets.token_hex(6)}"
 
 
-def save_qr_code_image(hass, text: str) -> str:
-    """Saves QR code image to HA www directory so it can be rendered reliably via /local/adlos_qr.png."""
+def generate_qr_code(hass, text: str) -> tuple[str, str]:
+    """Generates QR code PNG and returns local HA URL and base64 data URI."""
     try:
         import qrcode
         img = qrcode.make(text)
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+        data_uri = f"data:image/png;base64,{b64}"
+
         www_dir = hass.config.path("www")
         os.makedirs(www_dir, exist_ok=True)
         img_path = os.path.join(www_dir, "adlos_qr.png")
         img.save(img_path)
-        return f"/local/adlos_qr.png?t={int(time.time())}"
+        local_url = f"/local/adlos_qr.png?t={int(time.time())}"
+        return local_url, data_uri
     except Exception:
-        return ""
+        return "", ""
 
 
 class ChadAppConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for Chad App / Adlos."""
+    """Handle a config flow for Adlos."""
     VERSION = 1
 
     def __init__(self):
         """Initialize config flow."""
-        self._user_input = {}
+        self._user_input: dict = {}
+        self._bot_id: str = ""
 
     async def async_step_user(self, user_input=None):
-        """Handle the initial step: all fields empty by default."""
+        """Step 1: Configuration of server and bot name."""
         errors = {}
 
         if user_input is not None:
-            # Normalize PocketBase URL
-            raw_pb_url = user_input.get(CONF_URL, "")
-            user_input[CONF_URL] = normalize_pocketbase_url(raw_pb_url)
-            
-            # Default room_id fallback if left blank
-            if not user_input.get(CONF_ROOM_ID, "").strip():
-                user_input[CONF_ROOM_ID] = "homeassistant_bot"
+            server_url = get_clean_base_url(user_input.get(CONF_SERVER_URL, DEFAULT_SERVER_URL))
+            bot_name = (user_input.get(CONF_BOT_NAME) or DEFAULT_BOT_NAME).strip()
+            bot_id = generate_bot_id()
 
-            return self.async_create_entry(title="Adlos", data=user_input)
+            self._user_input = {
+                CONF_SERVER_URL: server_url,
+                CONF_URL: server_url,
+                CONF_BOT_NAME: bot_name,
+                CONF_BOT_ID: bot_id,
+                CONF_ROOM_ID: bot_id,
+                CONF_PAIRED_USERS: {},
+                CONF_TARGET_CONTACTS: "",
+            }
+            self._bot_id = bot_id
+            return await self.async_step_pair()
 
         data_schema = vol.Schema({
-            vol.Required(CONF_HA_URL, default=""): str,
-            vol.Optional(CONF_TOKEN, default=""): str,
-            vol.Required(CONF_URL, default=""): str,
-            vol.Optional(CONF_ROOM_ID, default=""): str,
+            vol.Required(CONF_SERVER_URL, default=DEFAULT_SERVER_URL): str,
+            vol.Required(CONF_BOT_NAME, default=DEFAULT_BOT_NAME): str,
         })
 
         return self.async_show_form(
@@ -83,39 +92,37 @@ class ChadAppConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     async def async_step_pair(self, user_input=None):
-        """Step 2: Show QR Code pairing screen with user-specified HA URL and Token."""
+        """Step 2: Display QR Code for instant pairing with Adlos App."""
         if user_input is not None:
-            return self.async_create_entry(title="Adlos / Chad App", data=self._user_input)
+            return self.async_create_entry(
+                title=f"Adlos ({self._user_input.get(CONF_BOT_NAME, DEFAULT_BOT_NAME)})",
+                data=self._user_input,
+            )
 
-        raw_ha_url = (self._user_input.get(CONF_HA_URL) or "").strip()
-        if raw_ha_url:
-            if not raw_ha_url.startswith("http://") and not raw_ha_url.startswith("https://"):
-                ha_url = f"https://{raw_ha_url}"
-            else:
-                ha_url = raw_ha_url
-            ha_url = ha_url.rstrip("/")
-        else:
-            ha_url = "https://homey.org"
+        bot_id = self._user_input.get(CONF_BOT_ID, self._bot_id)
+        bot_name = self._user_input.get(CONF_BOT_NAME, DEFAULT_BOT_NAME)
+        server_url = self._user_input.get(CONF_SERVER_URL, DEFAULT_SERVER_URL)
 
-        token = (self._user_input.get(CONF_TOKEN) or "").strip()
-
-        pairing_payload = json.dumps({
-            "type": "adlos_ha",
-            "url": ha_url,
-            "token": token,
-            "webhook_id": "adlos_pairing",
+        # Native Adlos contact QR code format
+        qr_payload = json.dumps({
+            "action": "adlos_contact",
+            "id": bot_id,
+            "name": bot_name,
+            "home_server": server_url,
         })
 
-        qr_img_url = save_qr_code_image(self.hass, pairing_payload)
+        local_url, data_uri = generate_qr_code(self.hass, qr_payload)
 
-        # Also create a persistent notification in HA
+        # Create persistent notification in HA
         try:
             notification_msg = (
                 f"### 📱 Adlos App Kopplung\n\n"
-                f"![QR-Code]({qr_img_url})\n\n"
-                f"**Home Assistant URL:** `{ha_url}`\n\n"
-                f"**Token:** `{token}`\n\n"
-                f"**JSON-Payload:**\n```json\n{pairing_payload}\n```"
+                f"Scanne diesen QR-Code in deiner Adlos-App unter **'Kontakt hinzufügen'**:\n\n"
+                f"![QR-Code]({local_url})\n\n"
+                f"- **Bot-ID:** `{bot_id}`\n"
+                f"- **Name:** `{bot_name}`\n"
+                f"- **Server:** `{server_url}`\n\n"
+                f"```json\n{qr_payload}\n```"
             )
             persistent_notification.async_create(
                 self.hass,
@@ -130,10 +137,11 @@ class ChadAppConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="pair",
             data_schema=vol.Schema({}),
             description_placeholders={
-                "ha_url": ha_url,
-                "token": token if token else "Kein Token angegeben",
-                "qr_image": f"![QR-Code]({qr_img_url})" if qr_img_url else "",
-                "pairing_payload": pairing_payload,
+                "bot_id": bot_id,
+                "bot_name": bot_name,
+                "server_url": server_url,
+                "qr_image": f"![QR-Code]({local_url})" if local_url else "",
+                "qr_payload": qr_payload,
             },
         )
 
@@ -145,28 +153,71 @@ class ChadAppConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class ChadAppOptionsFlowHandler(config_entries.OptionsFlow):
-    """Handle Chad App / Adlos options."""
+    """Handle Adlos options."""
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         """Initialize options flow."""
         self.config_entry = config_entry
 
     async def async_step_init(self, user_input=None):
-        """Manage the options."""
+        """Manage Adlos options and show QR Code."""
         if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
+            server_url = get_clean_base_url(user_input.get(CONF_SERVER_URL, DEFAULT_SERVER_URL))
+            bot_name = (user_input.get(CONF_BOT_NAME) or DEFAULT_BOT_NAME).strip()
 
-        current_bot_id = self.config_entry.options.get(
-            CONF_BOT_ID,
-            self.config_entry.data.get(CONF_BOT_ID, "homeassistant_bot")
+            new_options = dict(self.config_entry.options)
+            new_options[CONF_SERVER_URL] = server_url
+            new_options[CONF_BOT_NAME] = bot_name
+
+            # Keep existing bot_id
+            bot_id = self.config_entry.data.get(CONF_BOT_ID) or self.config_entry.options.get(CONF_BOT_ID)
+            if bot_id:
+                new_options[CONF_BOT_ID] = bot_id
+
+            return self.async_create_entry(title="", data=new_options)
+
+        bot_id = (
+            self.config_entry.options.get(CONF_BOT_ID)
+            or self.config_entry.data.get(CONF_BOT_ID)
+            or "homeassistant_bot"
+        )
+        bot_name = (
+            self.config_entry.options.get(CONF_BOT_NAME)
+            or self.config_entry.data.get(CONF_BOT_NAME)
+            or DEFAULT_BOT_NAME
+        )
+        server_url = (
+            self.config_entry.options.get(CONF_SERVER_URL)
+            or self.config_entry.data.get(CONF_SERVER_URL)
+            or DEFAULT_SERVER_URL
         )
 
+        qr_payload = json.dumps({
+            "action": "adlos_contact",
+            "id": bot_id,
+            "name": bot_name,
+            "home_server": server_url,
+        })
+        local_url, _ = generate_qr_code(self.hass, qr_payload)
+
+        paired_users = self.config_entry.options.get(
+            CONF_PAIRED_USERS,
+            self.config_entry.data.get(CONF_PAIRED_USERS, {})
+        )
+        users_count = len(paired_users) if isinstance(paired_users, dict) else 0
+
         options_schema = vol.Schema({
-            vol.Optional(CONF_BOT_ID, default=current_bot_id): str,
+            vol.Required(CONF_SERVER_URL, default=server_url): str,
+            vol.Required(CONF_BOT_NAME, default=bot_name): str,
         })
 
         return self.async_show_form(
-            step_id="init", data_schema=options_schema
+            step_id="init",
+            data_schema=options_schema,
+            description_placeholders={
+                "bot_id": bot_id,
+                "server_url": server_url,
+                "users_count": str(users_count),
+                "qr_image": f"![QR-Code]({local_url})" if local_url else "",
+            },
         )
-
-

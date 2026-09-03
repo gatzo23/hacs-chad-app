@@ -1,9 +1,9 @@
 {
   "domain": "chad_app",
   "name": "Adlos",
-  "version": "1.4.9",
+  "version": "2.0.0",
   "documentation": "https://github.com/gatzo23/hacs-chad-app",
-  "dependencies": ["webhook"],
+  "dependencies": [],
   "codeowners": ["@gatzo23"],
   "requirements": ["cryptography>=41.0.0", "qrcode>=7.4.2"],
   "iot_class": "cloud_push",

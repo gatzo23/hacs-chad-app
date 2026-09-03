@@ -3,13 +3,15 @@
     "step": {
       "user": {
         "title": "Adlos einrichten",
-        "description": "Gib die Verbindungsdaten für deine Adlos Integration ein.",
+        "description": "Konfiguriere den Server und Namen für Home Assistant in der Adlos App.",
         "data": {
-          "ha_url": "Home Assistant Instanz-Adresse (z.B. https://homey.org)",
-          "token": "Home Assistant Langlebiger Zugriffstoken (Optional)",
-          "url": "PocketBase Server URL (z.B. https://pocket.nextbee.org oder bis /api)",
-          "room_id": "Standard Room ID (Optional, Standard: homeassistant_bot)"
+          "server_url": "PocketBase Server-URL (Standard: https://pocket.nextbee.org)",
+          "bot_name": "Name des Bots / Kontakts (Standard: Home Assistant)"
         }
+      },
+      "pair": {
+        "title": "Mit Adlos koppeln",
+        "description": "Scanne den QR-Code mit der Adlos-App auf deinem Smartphone (**Kontakt hinzufügen -> QR-Code scannen**):\n\n{qr_image}\n\n- **Bot-ID:** `{bot_id}`\n- **Name:** `{bot_name}`\n- **Server:** `{server_url}`"
       }
     },
     "error": {
@@ -22,12 +24,11 @@
   "options": {
     "step": {
       "init": {
-        "title": "Adlos Optionen",
-        "description": "Passe die Ziel-Nutzer und Einstellungen an.",
+        "title": "Adlos Einstellungen & QR-Code",
+        "description": "Aktuell gekoppelte Kontakte: **{users_count}**\n\nScanne den QR-Code mit weiteren Smartphones:\n\n{qr_image}",
         "data": {
-          "target_contacts": "Ziel-Nutzer Contact IDs (kommagetrennt)",
-          "bot_id": "Bot ID",
-          "encryption_key": "Verschlüsselungsschlüssel (Optional)"
+          "server_url": "PocketBase Server-URL",
+          "bot_name": "Name des Bots / Kontakts"
         }
       }
     }
@@ -35,7 +36,7 @@
   "services": {
     "send_message": {
       "name": "Nachricht senden",
-      "description": "Sendet eine verschlüsselte Textnachricht an einen oder mehrere Adlos-Nutzer.",
+      "description": "Sendet eine Ende-zu-Ende verschlüsselte Nachricht oder Schnappschuss an Adlos-Nutzer.",
       "fields": {
         "message": {
           "name": "Nachricht",
@@ -47,29 +48,25 @@
         },
         "target": {
           "name": "Empfänger",
-          "description": "Name(n), Contact-ID(s) oder Raumname(n)."
-        },
-        "room": {
-          "name": "Raum",
-          "description": "Optionaler benutzerdefinierter Raum (Standard: homeassistant_bot)."
+          "description": "Name, Kontakt-ID oder Raum. Wenn leer, wird an alle gekoppelten Nutzer gesendet."
         },
         "camera": {
           "name": "Kamera-Entität",
-          "description": "Optionale Kamera (z.B. camera.hauseingang) für automatischen Schnappschuss."
+          "description": "Optionale Kamera (z.B. camera.haustuer) für automatischen Schnappschuss."
         },
         "image": {
           "name": "Bildpfad / URL",
-          "description": "Optionaler lokaler Pfad oder URL (z.B. /config/www/snapshot.jpg oder https://...)."
+          "description": "Optionaler lokaler Pfad (z.B. /config/www/snapshot.jpg) oder URL."
         },
         "encryption_key": {
           "name": "Verschlüsselungsschlüssel",
-          "description": "Optionaler benutzerdefinierter Verschlüsselungsschlüssel."
+          "description": "Optionaler benutzerdefinierter Schlüssel."
         }
       }
     },
     "send_photo": {
       "name": "Foto senden",
-      "description": "Sendet ein verschlüsseltes Foto an einen oder mehrere Adlos-Nutzer.",
+      "description": "Sendet ein Ende-zu-Ende verschlüsseltes Foto an Adlos-Nutzer.",
       "fields": {
         "message": {
           "name": "Bildunterschrift / Nachricht",
@@ -81,7 +78,7 @@
         },
         "camera": {
           "name": "Kamera-Entität",
-          "description": "Optionale Kamera (z.B. camera.hauseingang) für automatischen Schnappschuss."
+          "description": "Optionale Kamera für automatischen Schnappschuss."
         },
         "path": {
           "name": "Dateipfad",
@@ -89,25 +86,17 @@
         },
         "image": {
           "name": "Bildpfad / URL",
-          "description": "Alternativer Parameter für Bildpfad oder URL."
+          "description": "Alternativer Parameter für Bildpfad."
         },
         "target": {
           "name": "Empfänger",
-          "description": "Name(n), Contact-ID(s) oder Raumname(n)."
-        },
-        "room": {
-          "name": "Raum",
-          "description": "Optionaler benutzerdefinierter Raum (Standard: homeassistant_bot)."
-        },
-        "encryption_key": {
-          "name": "Verschlüsselungsschlüssel",
-          "description": "Optionaler benutzerdefinierter Verschlüsselungsschlüssel."
+          "description": "Name, Kontakt-ID oder Raum."
         }
       }
     },
     "register_user": {
       "name": "Nutzer registrieren",
-      "description": "Registriert eine Adlos Contact-ID und Namen automatisch für Benachrichtigungen.",
+      "description": "Registriert eine Adlos Contact-ID manuell.",
       "fields": {
         "contact_id": {
           "name": "Contact ID",
@@ -115,13 +104,17 @@
         },
         "name": {
           "name": "Nutzername",
-          "description": "Optionaler Anzeigename des Nutzers für gezielte target-Angaben."
+          "description": "Optionaler Anzeigename des Nutzers."
+        },
+        "room_key": {
+          "name": "Raum-Schlüssel (E2EE)",
+          "description": "Optionaler Base64-AES-Schlüssel für Ende-zu-Ende-Verschlüsselung."
         }
       }
     },
     "unregister_user": {
       "name": "Nutzer entfernen",
-      "description": "Entfernt eine Adlos Contact-ID aus den registrierten Empfängern.",
+      "description": "Entfernt einen gekoppelten Adlos-Nutzer.",
       "fields": {
         "contact_id": {
           "name": "Contact ID",
@@ -131,6 +124,3 @@
     }
   }
 }
-
-
-

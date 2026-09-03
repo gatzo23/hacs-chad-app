@@ -1,7 +1,5 @@
 """Adlos notification service & entity platform for Chad App / Adlos."""
 
-import asyncio
-import json
 import logging
 import re
 import secrets
@@ -11,7 +9,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, CONF_TOKEN, CONF_ROOM_ID
+from .const import DOMAIN, CONF_PAIRED_USERS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -24,10 +22,13 @@ async def async_setup_entry(
     """Set up Adlos notify entities from a config entry."""
     entities: list[NotifyEntity] = [AdlosChadNotifyEntity(hass, entry)]
 
-    # Erstelle automatisch für jeden registrierten Nutzer eine eigene Notify-Entität
-    registered_users = entry.options.get("registered_users", entry.data.get("registered_users", {}))
-    if isinstance(registered_users, dict):
-        for cid, uinfo in registered_users.items():
+    # Create individual notify entity for each paired user
+    paired_users = entry.options.get(
+        CONF_PAIRED_USERS,
+        entry.data.get(CONF_PAIRED_USERS, {})
+    )
+    if isinstance(paired_users, dict):
+        for cid, uinfo in paired_users.items():
             name = uinfo.get("name") if isinstance(uinfo, dict) else str(uinfo)
             entities.append(AdlosUserNotifyEntity(hass, entry, cid, name or cid))
 
@@ -47,17 +48,11 @@ class AdlosChadNotifyEntity(NotifyEntity):
         self.entry = entry
         self.entity_id = "notify.adlos"
         self._attr_unique_id = f"{DOMAIN}_notify_{entry.entry_id}"
-        self.secret_token = entry.options.get(CONF_TOKEN, entry.data.get(CONF_TOKEN, ""))
-        self.webhook_id = f"adlos_pairing_{entry.entry_id}"
 
     async def async_send_message(self, message: str, title: str | None = None, data: dict | None = None) -> None:
         """Send a notification message via Adlos Notify Entity."""
         data = dict(data) if data else {}
 
-        # 1. Standard-Raum (room) beibehalten: immer "homeassistant_bot" als Default
-        room_id = data.get("room") or data.get("room_id") or "homeassistant_bot"
-
-        # 2. Empfänger (targets) als formatierte Liste & Originalwert ermitteln
         targets = data.get("target") or data.get("targets")
         target_list: list[str] = []
         if targets is not None:
@@ -69,28 +64,22 @@ class AdlosChadNotifyEntity(NotifyEntity):
             else:
                 target_list = [str(targets).strip()]
 
-        # 3. Eindeutige Message-ID
         msg_id = data.get("id") or f"ha_{int(time.time() * 1000)}_{secrets.token_hex(4)}"
 
-        # 4. Bild- und Kameraübertragung
         camera_entity = data.get("camera") or data.get("camera_entity")
         if not camera_entity and data.get("entity_id") and str(data.get("entity_id")).startswith("camera."):
             camera_entity = data.get("entity_id")
 
-        image_url = None
         raw_image = data.get("image") or data.get("url") or data.get("path") or data.get("file_path")
-
+        image_url = None
         if camera_entity:
-            proxy_url = f"/api/camera_proxy/{camera_entity}"
-            image_url = proxy_url
+            image_url = f"/api/camera_proxy/{camera_entity}"
         elif raw_image:
             image_url = str(raw_image).strip()
 
-        # 5. Weiterleitung an send_message Service (übernimmt E2EE-Verschlüsselung, SSE-Stream, Backlog & REST-Dispatch)
         call_data = {
             "id": msg_id,
             "message": str(message or ""),
-            "room": room_id,
             "data": data,
         }
         if title is not None:
@@ -110,8 +99,6 @@ class AdlosChadNotifyEntity(NotifyEntity):
                 await self.hass.services.async_call(DOMAIN, "send_message", call_data)
             elif self.hass.services.has_service("adlos", "send_message"):
                 await self.hass.services.async_call("adlos", "send_message", call_data)
-            elif self.hass.services.has_service("adloshacs", "send_message"):
-                await self.hass.services.async_call("adloshacs", "send_message", call_data)
         except Exception as err:
             _LOGGER.error("ADLOS_NOTIFY: Error forwarding to send_message: %s", err)
 
@@ -132,14 +119,11 @@ class AdlosUserNotifyEntity(NotifyEntity):
         self.entity_id = f"notify.adlos_{slug_name or contact_id}"
         self._attr_name = f"Adlos ({user_name})"
         self._attr_unique_id = f"{DOMAIN}_notify_user_{entry.entry_id}_{contact_id}"
-        self.secret_token = entry.options.get(CONF_TOKEN, entry.data.get(CONF_TOKEN, ""))
-        self.webhook_id = f"adlos_pairing_{entry.entry_id}"
 
     async def async_send_message(self, message: str, title: str | None = None, data: dict | None = None) -> None:
         """Send a notification message directly to this registered user."""
         data = dict(data) if data else {}
         data["target"] = self.contact_id
-        data.setdefault("room", "homeassistant_bot")
 
         msg_id = data.get("id") or f"ha_{int(time.time() * 1000)}_{secrets.token_hex(4)}"
 
@@ -147,12 +131,10 @@ class AdlosUserNotifyEntity(NotifyEntity):
         if not camera_entity and data.get("entity_id") and str(data.get("entity_id")).startswith("camera."):
             camera_entity = data.get("entity_id")
 
-        image_url = None
         raw_image = data.get("image") or data.get("url") or data.get("path") or data.get("file_path")
-
+        image_url = None
         if camera_entity:
-            proxy_url = f"/api/camera_proxy/{camera_entity}"
-            image_url = proxy_url
+            image_url = f"/api/camera_proxy/{camera_entity}"
         elif raw_image:
             image_url = str(raw_image).strip()
 
@@ -176,9 +158,5 @@ class AdlosUserNotifyEntity(NotifyEntity):
                 await self.hass.services.async_call(DOMAIN, "send_message", call_data)
             elif self.hass.services.has_service("adlos", "send_message"):
                 await self.hass.services.async_call("adlos", "send_message", call_data)
-            elif self.hass.services.has_service("adloshacs", "send_message"):
-                await self.hass.services.async_call("adloshacs", "send_message", call_data)
         except Exception as err:
             _LOGGER.error("ADLOS_NOTIFY: Error forwarding to send_message: %s", err)
-
-

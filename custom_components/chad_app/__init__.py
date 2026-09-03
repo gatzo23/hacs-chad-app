@@ -1,283 +1,188 @@
-"""Chad App / Adlos Home Assistant Integration with End-to-End Encryption (E2EE) & Multi-User Support."""
+"""Chad App / Adlos Home Assistant Integration with native Adlos protocol, E2EE, and bidirectional chat."""
 
 import os
 import re
-import base64
-import hashlib
-import logging
-import asyncio
-import aiohttp
 import json
 import time
+import logging
+import asyncio
 import secrets
+import aiohttp
+from typing import Any
+
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from cryptography.hazmat.primitives import padding
-from cryptography.hazmat.backends import default_backend
+from homeassistant.components import persistent_notification
+import voluptuous as vol
+from homeassistant.helpers import config_validation as cv
 
 from .const import (
     DOMAIN,
-    CONF_URL,
-    CONF_TOKEN,
-    CONF_ROOM_ID,
+    DEFAULT_SERVER_URL,
+    DEFAULT_BOT_NAME,
+    CONF_SERVER_URL,
+    CONF_BOT_NAME,
     CONF_BOT_ID,
+    CONF_PAIRED_USERS,
+    CONF_ROOM_ID,
     CONF_TARGET_CONTACTS,
     CONF_ENCRYPTION_KEY,
+    CONF_TOKEN,
+    CONF_URL,
 )
+from .crypto import (
+    derive_room_id,
+    encrypt_text,
+    encrypt_bytes,
+    decode_key_bytes,
+)
+from .pocketbase_listener import PocketBaseListener, get_clean_base_url
 
 _LOGGER = logging.getLogger(__name__)
 
-
-# ---------------------------------------------------------------------------
-# E2EE Crypto & Room Helpers (Identical to Dart EncryptionHelper in Adlos App)
-# ---------------------------------------------------------------------------
-
-def derive_room_id(id_a: str, id_b: str) -> str:
-    """Derives a deterministic 15-character PocketBase-compatible Room ID for two contacts."""
-    combined = "_".join(sorted([id_a.strip(), id_b.strip()]))
-    h = hashlib.sha256(combined.encode("utf-8")).hexdigest()
-    clean = re.sub(r'[^a-zA-Z0-9]', '', h).lower()
-    return clean[:15]
-
-
-def derive_room_key(room_id: str = "homeassistant_bot") -> bytes:
-    """Leitet den 32-Byte AES-256 Schlüssel deterministisch ab."""
-    secret_str = f"adlos_e2ee_secret_v1_{room_id}"
-    return hashlib.sha256(secret_str.encode("utf-8")).digest()
-
-
-def derive_deterministic_room_key(room_id: str = "homeassistant_bot") -> bytes:
-    """Alias for derive_room_key for backwards compatibility."""
-    return derive_room_key(room_id)
-
-
-def decode_key_bytes(key_str: str) -> bytes:
-    """Decodes a base64/base64url key string or hashes an arbitrary passphrase into 32 bytes."""
-    normalized = (key_str or "").strip()
-    if not normalized:
-        return b""
-    try:
-        return base64.urlsafe_b64decode(normalized)
-    except Exception:
-        pass
-    try:
-        # Standard base64 with padding
-        b64 = normalized.replace("-", "+").replace("_", "/")
-        while len(b64) % 4 != 0:
-            b64 += "="
-        return base64.b64decode(b64)
-    except Exception:
-        # Fallback: SHA-256 hash of the passphrase string
-        return hashlib.sha256(normalized.encode("utf-8")).digest()
-
-
-def encrypt_text(plain_text: str, key_bytes: bytes | None = None, room_id: str = "homeassistant_bot") -> str:
-    """Verschlüsselt Klartext mit AES-256-CBC und liefert iv_base64:ciphertext_base64 zurück."""
-    if not plain_text:
-        return ""
-
-    if key_bytes is None or len(key_bytes) != 32:
-        key = derive_room_key(room_id)
-    else:
-        key = key_bytes
-
-    try:
-        iv = os.urandom(16)
-        padder = padding.PKCS7(128).padder()
-        padded_data = padder.update(plain_text.encode("utf-8")) + padder.finalize()
-
-        cipher = Cipher(algorithms.AES(key), modes.CBC(iv), backend=default_backend())
-        encryptor = cipher.encryptor()
-        ciphertext = encryptor.update(padded_data) + encryptor.finalize()
-
-        iv_b64 = base64.b64encode(iv).decode("utf-8")
-        cipher_b64 = base64.b64encode(ciphertext).decode("utf-8")
-        return f"{iv_b64}:{cipher_b64}"
-    except Exception as err:
-        _LOGGER.error("ADLOS_E2EE: Text encryption failed: %s", err)
-        return plain_text
-
-
-def encrypt_bytes(data_bytes: bytes, key_bytes: bytes) -> bytes:
-    """Encrypts raw file bytes using AES-256-CBC with PKCS7 padding.
-    
-    Output format: 16 bytes IV prefix + ciphertext bytes
-    """
-    if not data_bytes:
-        return data_bytes
-    if not key_bytes or len(key_bytes) != 32:
-        _LOGGER.warning("ADLOS_E2EE: Invalid key length (%s bytes), sending unencrypted file", len(key_bytes) if key_bytes else 0)
-        return data_bytes
-
-    try:
-        iv = os.urandom(16)
-        padder = padding.PKCS7(128).padder()
-        padded_data = padder.update(data_bytes) + padder.finalize()
-
-        cipher = Cipher(algorithms.AES(key_bytes), modes.CBC(iv), backend=default_backend())
-        encryptor = cipher.encryptor()
-        ciphertext = encryptor.update(padded_data) + encryptor.finalize()
-
-        return iv + ciphertext
-    except Exception as err:
-        _LOGGER.error("ADLOS_E2EE: File byte encryption failed: %s", err)
-        return data_bytes
-
-
-# ---------------------------------------------------------------------------
-# Home Assistant Entry Setup
-# ---------------------------------------------------------------------------
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Chad App / Adlos from a config entry."""
     hass.data.setdefault(DOMAIN, {})
 
-    url = entry.options.get(CONF_URL, entry.data.get(CONF_URL, "https://pocket.nextbee.org/api/collections/messages/records"))
+    server_url = get_clean_base_url(
+        entry.options.get(CONF_SERVER_URL)
+        or entry.data.get(CONF_SERVER_URL)
+        or entry.options.get(CONF_URL)
+        or entry.data.get(CONF_URL)
+        or DEFAULT_SERVER_URL
+    )
+    bot_id = (
+        entry.options.get(CONF_BOT_ID)
+        or entry.data.get(CONF_BOT_ID)
+        or "homeassistant_bot"
+    ).strip()
+    bot_name = (
+        entry.options.get(CONF_BOT_NAME)
+        or entry.data.get(CONF_BOT_NAME)
+        or DEFAULT_BOT_NAME
+    ).strip()
     token = entry.options.get(CONF_TOKEN, entry.data.get(CONF_TOKEN))
-    bot_id = entry.options.get(CONF_BOT_ID, entry.data.get(CONF_BOT_ID, "homeassistant_bot")).strip() or "homeassistant_bot"
-    default_room = entry.options.get(CONF_ROOM_ID, entry.data.get(CONF_ROOM_ID, "homeassistant_bot")).strip() or "homeassistant_bot"
-    target_contacts_raw = entry.options.get(CONF_TARGET_CONTACTS, entry.data.get(CONF_TARGET_CONTACTS, ""))
-    configured_key = entry.options.get(CONF_ENCRYPTION_KEY, entry.data.get(CONF_ENCRYPTION_KEY))
 
-    stored_users = entry.options.get("registered_users", entry.data.get("registered_users", {}))
-    if not isinstance(stored_users, dict):
-        stored_users = {}
-
-    hass.data[DOMAIN][entry.entry_id] = {
-        CONF_URL: url,
-        CONF_TOKEN: token,
-        CONF_BOT_ID: bot_id,
-        CONF_ROOM_ID: default_room,
-        CONF_TARGET_CONTACTS: target_contacts_raw,
-        CONF_ENCRYPTION_KEY: configured_key,
-        "registered_users": dict(stored_users),
-        "subscribers": set(),
-        "messages": [],
-    }
+    paired_users = entry.options.get(
+        CONF_PAIRED_USERS,
+        entry.data.get(CONF_PAIRED_USERS, {})
+    )
+    if not isinstance(paired_users, dict):
+        paired_users = {}
 
     session = async_get_clientsession(hass)
 
-    def _resolve_room_key(target_room: str, custom_key_str: str | None = None) -> bytes:
-        """Determines the 32-byte encryption key for a room."""
-        if custom_key_str and custom_key_str.strip():
-            return decode_key_bytes(custom_key_str)
-        if configured_key and str(configured_key).strip():
-            return decode_key_bytes(configured_key)
-        return derive_deterministic_room_key(target_room)
+    entry_data = {
+        CONF_SERVER_URL: server_url,
+        CONF_BOT_ID: bot_id,
+        CONF_BOT_NAME: bot_name,
+        CONF_TOKEN: token,
+        CONF_PAIRED_USERS: dict(paired_users),
+    }
+    hass.data[DOMAIN][entry.entry_id] = entry_data
 
-    def _get_target_url(raw_url: str) -> str:
-        raw_base_url = (raw_url or "").strip()
-        if "beeserver.org" in raw_base_url and "pocket" not in raw_base_url:
-            base_url = "https://pocket.nextbee.org"
-        else:
-            base_url = raw_base_url or "https://pocket.nextbee.org"
+    def _resolve_user_key_for_room(room_id: str, custom_key: str | None = None) -> bytes:
+        """Determines the AES key for a room."""
+        if custom_key and str(custom_key).strip():
+            return decode_key_bytes(custom_key)
 
-        if "records" in base_url:
-            return base_url
-        if base_url.startswith(("http://", "https://")):
-            return f"{base_url.rstrip('/')}/api/collections/messages/records"
-        return "https://pocket.nextbee.org/api/collections/messages/records"
+        # Check in paired users
+        cur_users = hass.data[DOMAIN][entry.entry_id].get(CONF_PAIRED_USERS, {})
+        for uid, uinfo in cur_users.items():
+            u_room = derive_room_id(uid, bot_id)
+            if room_id == u_room or room_id == uinfo.get("room_id"):
+                r_key = uinfo.get("room_key")
+                if r_key:
+                    return decode_key_bytes(r_key)
 
-    def _get_candidate_urls(target_url: str) -> list[str]:
-        candidates = [
-            target_url,
-            "https://pocket.nextbee.org/api/collections/messages/records",
-            "http://192.168.178.74:8090/api/collections/messages/records",
-        ]
-        return list(dict.fromkeys(candidates))
+        return b""
 
-    async def _async_send_text_to_room(target_room: str, text: str, custom_key: str | None = None, extra_fields: dict | None = None) -> bool:
-        target_url = _get_target_url(url)
-        candidate_urls = _get_candidate_urls(target_url)
+    async def _async_send_text_to_room(
+        target_room: str,
+        text: str,
+        custom_key: str | None = None,
+        extra_fields: dict | None = None,
+    ) -> bool:
+        """Sends an encrypted (or plaintext fallback) text message to PocketBase."""
+        records_url = f"{server_url}/api/collections/messages/records"
         headers = {"Content-Type": "application/json"}
         if token:
             headers["Authorization"] = f"Bearer {token}"
 
-        key_bytes = _resolve_room_key(target_room, custom_key)
-        encrypted_text = encrypt_text(text, key_bytes=key_bytes, room_id=target_room)
+        key_bytes = _resolve_user_key_for_room(target_room, custom_key)
+        encrypted_text = encrypt_text(text, key_bytes) if key_bytes else text
 
         payload = {
             "room": target_room,
-            "sender": "Home Assistant",
+            "sender": bot_name,
             "text": encrypted_text,
             "type": "text",
         }
-        if extra_fields:
-            if "title" in extra_fields and extra_fields["title"]:
-                payload["title"] = extra_fields["title"]
-            if "targets" in extra_fields and extra_fields["targets"]:
-                payload["targets"] = extra_fields["targets"]
-            if "target" in extra_fields and extra_fields["target"] is not None:
-                payload["target"] = extra_fields["target"]
 
-        _LOGGER.debug("ADLOS_REST: Sending encrypted message to room %s", target_room)
-
-        for post_url in candidate_urls:
-            try:
-                async with session.post(post_url, json=payload, headers=headers, timeout=10) as response:
-                    resp_body = await response.text()
-                    if response.status in (200, 201, 204):
-                        _LOGGER.info("ADLOS_REST SUCCESS (HTTP %s) via %s for room %s: %s", response.status, post_url, target_room, resp_body)
-                        return True
-                    _LOGGER.error("ADLOS_REST ERROR (HTTP %s) via %s: %s", response.status, post_url, resp_body)
-            except Exception as e:
-                _LOGGER.error("ADLOS_REST EXCEPTION posting to %s: %s", post_url, e)
-
-        _LOGGER.error("ADLOS_REST: Failed to send encrypted message to room %s", target_room)
+        try:
+            async with session.post(records_url, json=payload, headers=headers, timeout=10) as resp:
+                resp_text = await resp.text()
+                if resp.status in (200, 201, 204):
+                    _LOGGER.info("ADLOS: Message sent successfully (HTTP %s) to room %s", resp.status, target_room)
+                    return True
+                _LOGGER.error("ADLOS: Failed to send message to room %s (HTTP %s): %s", target_room, resp.status, resp_text)
+        except Exception as err:
+            _LOGGER.error("ADLOS: Exception sending message to room %s: %s", target_room, err)
         return False
 
-    async def _async_send_file_to_room(target_room: str, text: str, file_path: str, custom_key: str | None = None, extra_fields: dict | None = None) -> bool:
-        target_url = _get_target_url(url)
-        candidate_urls = _get_candidate_urls(target_url)
+    async def _async_send_file_to_room(
+        target_room: str,
+        text: str,
+        file_path: str,
+        custom_key: str | None = None,
+        extra_fields: dict | None = None,
+    ) -> bool:
+        """Sends an encrypted image/file to PocketBase via multipart form data."""
+        records_url = f"{server_url}/api/collections/messages/records"
         headers = {}
         if token:
             headers["Authorization"] = f"Bearer {token}"
 
-        key_bytes = _resolve_room_key(target_room, custom_key)
+        key_bytes = _resolve_user_key_for_room(target_room, custom_key)
 
         try:
             with open(file_path, "rb") as f:
                 raw_bytes = f.read()
-        except Exception as e:
-            _LOGGER.error("ADLOS_REST: Could not read image file '%s': %s", file_path, e)
+        except Exception as err:
+            _LOGGER.error("ADLOS: Could not read file '%s': %s", file_path, err)
             return False
 
-        encrypted_file_bytes = encrypt_bytes(raw_bytes, key_bytes)
-        encrypted_text = encrypt_text(text, key_bytes=key_bytes, room_id=target_room) if text else ""
-
+        encrypted_file_bytes = encrypt_bytes(raw_bytes, key_bytes) if key_bytes else raw_bytes
+        encrypted_text = encrypt_text(text, key_bytes) if (text and key_bytes) else (text or "")
         filename = os.path.basename(file_path)
-        _LOGGER.debug("ADLOS_REST: Sending encrypted photo (%s bytes) to room %s", len(encrypted_file_bytes), target_room)
 
-        for post_url in candidate_urls:
-            try:
-                form_data = aiohttp.FormData()
-                form_data.add_field("text", encrypted_text)
-                form_data.add_field("sender", "Home Assistant")
-                form_data.add_field("room", target_room)
-                form_data.add_field("type", "image")
-                form_data.add_field(
-                    "file",
-                    encrypted_file_bytes,
-                    filename=filename,
-                    content_type="application/octet-stream"
-                )
+        form_data = aiohttp.FormData()
+        form_data.add_field("text", encrypted_text)
+        form_data.add_field("sender", bot_name)
+        form_data.add_field("room", target_room)
+        form_data.add_field("type", "image")
+        form_data.add_field(
+            "file",
+            encrypted_file_bytes,
+            filename=filename,
+            content_type="application/octet-stream" if key_bytes else "image/jpeg",
+        )
 
-                async with session.post(post_url, data=form_data, headers=headers, timeout=20) as response:
-                    resp_body = await response.text()
-                    if response.status in (200, 201, 204):
-                        _LOGGER.info("ADLOS_REST SUCCESS (HTTP %s) via %s for room %s: %s", response.status, post_url, target_room, resp_body)
-                        return True
-                    _LOGGER.error("ADLOS_REST ERROR (HTTP %s) via %s: %s", response.status, post_url, resp_body)
-            except Exception as e:
-                _LOGGER.error("ADLOS_REST EXCEPTION posting photo to %s: %s", post_url, e)
-
-        _LOGGER.error("ADLOS_REST: Failed to send encrypted photo to room %s", target_room)
+        try:
+            async with session.post(records_url, data=form_data, headers=headers, timeout=20) as resp:
+                resp_text = await resp.text()
+                if resp.status in (200, 201, 204):
+                    _LOGGER.info("ADLOS: File sent successfully (HTTP %s) to room %s", resp.status, target_room)
+                    return True
+                _LOGGER.error("ADLOS: Failed to send file to room %s (HTTP %s): %s", target_room, resp.status, resp_text)
+        except Exception as err:
+            _LOGGER.error("ADLOS: Exception sending file to room %s: %s", target_room, err)
         return False
 
-    def _parse_recipients(raw_input) -> list[str]:
-        """Parses various recipient formats into a clean list of strings."""
+    def _parse_recipients(raw_input: Any) -> list[str]:
+        """Parses various recipient formats into a list of strings."""
         if not raw_input:
             return []
         if isinstance(raw_input, list):
@@ -286,62 +191,43 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 res.extend(_parse_recipients(item))
             return res
         if isinstance(raw_input, str):
-            # Split by comma, semicolon or whitespace
             parts = re.split(r'[,;\s]+', raw_input.strip())
             return [p.strip() for p in parts if p.strip()]
         return [str(raw_input).strip()]
 
     def _resolve_target_rooms(specified_targets: list[str], explicit_room: str | None = None) -> list[str]:
-        """Maps user names, contact IDs, or room names to strict private 1:1 room IDs."""
-        if explicit_room and str(explicit_room).strip() and str(explicit_room).strip() != "homeassistant_bot":
+        """Resolves target names, IDs, or explicit rooms to derived room IDs."""
+        if explicit_room and str(explicit_room).strip():
             return [str(explicit_room).strip()]
 
-        reg_users = hass.data[DOMAIN].get(entry.entry_id, {}).get("registered_users", {})
-        targets = specified_targets
-        if not targets:
-            targets = _parse_recipients(target_contacts_raw)
+        cur_paired = hass.data[DOMAIN][entry.entry_id].get(CONF_PAIRED_USERS, {})
 
-        if not targets and reg_users:
-            targets = list(reg_users.keys())
+        if not specified_targets:
+            # If no target specified, send to all paired users
+            if cur_paired:
+                return [derive_room_id(uid, bot_id) for uid in cur_paired]
+            # Fallback room
+            return [derive_room_id("homeassistant_user", bot_id)]
 
         target_rooms = []
-
-        for rec in targets:
+        for rec in specified_targets:
             if not rec:
                 continue
             rec_str = str(rec).strip()
             if rec_str.startswith("room:"):
                 target_rooms.append(rec_str[5:].strip())
             else:
-                # 1. Exact match: Sammle alle passenden Kontakt-IDs für den Namen / die ID
-                matched_cids = []
-                for cid, uinfo in reg_users.items():
-                    if rec_str.lower() == cid.lower() or rec_str.lower() == str(uinfo.get("name", "")).lower():
-                        matched_cids.append(cid)
+                matched = False
+                for uid, uinfo in cur_paired.items():
+                    uname = str(uinfo.get("name", "")).lower()
+                    if rec_str.lower() == uid.lower() or (uname and rec_str.lower() in uname):
+                        target_rooms.append(derive_room_id(uid, bot_id))
+                        matched = True
+                        break
 
-                if matched_cids:
-                    for cid in matched_cids:
-                        target_rooms.append(derive_room_id(bot_id, cid))
-                elif len(rec_str) == 15 and re.match(r'^[a-zA-Z0-9]{15}$', rec_str):
-                    # Direkte 15-stellige Kontakt-ID
-                    target_rooms.append(derive_room_id(bot_id, rec_str))
-                else:
-                    # 2. Case-insensitive substring match among registered users
-                    sub_matched_cids = []
-                    for cid, uinfo in reg_users.items():
-                        uname = str(uinfo.get("name", "")).lower()
-                        if uname and (rec_str.lower() in uname or uname in rec_str.lower()):
-                            sub_matched_cids.append(cid)
-
-                    if sub_matched_cids:
-                        for cid in sub_matched_cids:
-                            target_rooms.append(derive_room_id(bot_id, cid))
-                    elif reg_users:
-                        _LOGGER.warning("ADLOS: Target '%s' could not be resolved directly, routing to all private registered rooms", rec_str)
-                        for cid in reg_users:
-                            target_rooms.append(derive_room_id(bot_id, cid))
-                    else:
-                        _LOGGER.warning("ADLOS: Could not resolve target '%s' to a private 1:1 contact room", rec_str)
+                if not matched:
+                    # Treat rec_str directly as contact ID
+                    target_rooms.append(derive_room_id(rec_str, bot_id))
 
         return list(dict.fromkeys(target_rooms))
 
@@ -354,7 +240,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             or data.get("text")
             or data.get("caption")
             or data.get("content")
-            or data.get("payload")
             or extra_data.get("message")
             or extra_data.get("text")
             or extra_data.get("caption")
@@ -370,16 +255,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             text = str(raw_text)
 
         explicit_room = data.get("room") or extra_data.get("room")
-
         raw_targets = (
             data.get("target")
             or data.get("targets")
             or data.get("contact_id")
-            or data.get("contact_ids")
             or extra_data.get("target")
             or extra_data.get("targets")
-            or extra_data.get("contact_id")
-            or extra_data.get("contact_ids")
         )
         parsed_targets = _parse_recipients(raw_targets)
         target_rooms = _resolve_target_rooms(parsed_targets, explicit_room)
@@ -397,33 +278,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             if not file_path:
                 file_path = None
 
-        custom_key = (
-            data.get("encryption_key")
-            or extra_data.get("encryption_key")
-            or data.get("key")
-            or extra_data.get("key")
-        )
-        if custom_key:
-            custom_key = str(custom_key).strip()
-            if not custom_key:
-                custom_key = None
-
-        extra_fields = {
-            "title": title or "Home Assistant",
-            "targets": parsed_targets,
-            "target": raw_targets,
-        }
-
-        return target_rooms, text, file_path, custom_key, extra_fields
+        custom_key = data.get("encryption_key") or extra_data.get("encryption_key")
+        return target_rooms, text, file_path, custom_key
 
     async def send_message(call: ServiceCall):
-        """Service to send an encrypted text message or photo to one or multiple recipients."""
-        target_rooms, text, file_path, custom_key, extra_fields = _extract_params(call)
+        """Service to send message or photo to one or multiple recipients."""
+        target_rooms, text, file_path, custom_key = _extract_params(call)
 
         call_data = call.data
         extra_data = call_data.get("data") if isinstance(call_data.get("data"), dict) else {}
 
-        camera_entity = call_data.get("camera") or extra_data.get("camera") or call_data.get("camera_entity") or extra_data.get("camera_entity")
+        # Handle camera snapshot
+        camera_entity = (
+            call_data.get("camera")
+            or extra_data.get("camera")
+            or call_data.get("camera_entity")
+            or extra_data.get("camera_entity")
+        )
         if not camera_entity and call_data.get("entity_id") and str(call_data.get("entity_id")).startswith("camera."):
             camera_entity = call_data.get("entity_id")
 
@@ -437,352 +308,52 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         tf.write(image_data.content)
                         file_path = tf.name
             except Exception as err:
-                _LOGGER.error("ADLOS_REST: Failed to snapshot camera '%s': %s", camera_entity, err)
-
-        image_url = None
-        attachment = None
-        raw_img = call_data.get("image") or extra_data.get("image") or call_data.get("url") or extra_data.get("url")
-
-        if camera_entity:
-            proxy_url = f"/api/camera_proxy/{camera_entity}"
-            image_url = proxy_url
-            attachment = {"type": "image", "url": proxy_url, "camera": camera_entity}
-            msg_type = "image"
-        elif raw_img:
-            image_url = str(raw_img).strip()
-            attachment = {"type": "image", "url": image_url}
-            msg_type = "image"
-        elif file_path:
-            image_url = file_path
-            attachment = {"type": "image", "url": file_path}
-            msg_type = "image"
-        else:
-            msg_type = call_data.get("type") or extra_data.get("type") or "text"
-
-        msg_id = call_data.get("id") or extra_data.get("id") or f"ha_{int(time.time() * 1000)}_{secrets.token_hex(4)}"
-        now_ts = int(time.time() * 1000)
-
-        if not target_rooms:
-            _LOGGER.warning("ADLOS: Cannot send message - no valid private target room resolved")
-            return
-
-        # Primary room and encryption for SSE and backlog
-        primary_room = target_rooms[0]
-        sse_key_bytes = _resolve_room_key(primary_room, custom_key)
-        encrypted_text = encrypt_text(text, key_bytes=sse_key_bytes, room_id=primary_room) if text else ""
-
-        # Broadcast to SSE subscribers and update backlog
-        store = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
-        if store:
-            payload = {
-                "id": msg_id,
-                "room": primary_room,
-                "sender": "Home Assistant",
-                "type": msg_type,
-                "title": extra_fields.get("title") or "Home Assistant",
-                "message": encrypted_text,
-                "text": encrypted_text,
-                "targets": extra_fields.get("targets", []),
-                "target": extra_fields.get("target"),
-                "timestamp": now_ts,
-            }
-            if image_url:
-                payload["image"] = image_url
-            if attachment:
-                payload["attachment"] = attachment
-            if camera_entity:
-                payload["camera"] = camera_entity
-
-            messages_list = store.setdefault("messages", [])
-            messages_list.append(payload)
-            if len(messages_list) > 50:
-                del messages_list[:-50]
-
-            subscribers = list(store.get("subscribers", set()))
-            if subscribers:
-                sse_data = f"data: {json.dumps(payload)}\n\n".encode("utf-8")
-                for resp in subscribers:
-                    try:
-                        asyncio.create_task(resp.write(sse_data))
-                    except Exception as err:
-                        _LOGGER.debug("Error writing to SSE subscriber: %s", err)
+                _LOGGER.error("ADLOS: Failed to take camera snapshot for '%s': %s", camera_entity, err)
 
         tasks = []
         for room in target_rooms:
             if file_path and os.path.exists(file_path):
-                tasks.append(_async_send_file_to_room(room, text, file_path, custom_key, extra_fields))
+                tasks.append(_async_send_file_to_room(room, text, file_path, custom_key))
             else:
-                if file_path:
-                    _LOGGER.warning("ADLOS_REST: Image file '%s' not found. Sending as text message.", file_path)
-                tasks.append(_async_send_text_to_room(room, text, custom_key, extra_fields))
+                tasks.append(_async_send_text_to_room(room, text, custom_key))
 
         if tasks:
-            try:
-                await asyncio.gather(*tasks, return_exceptions=True)
-            except Exception as err:
-                _LOGGER.error("ADLOS_REST: Exception during background sending: %s", err)
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     async def send_photo(call: ServiceCall):
-        """Service to send an encrypted photo to one or multiple recipients."""
-        target_rooms, text, file_path, custom_key, extra_fields = _extract_params(call)
-
-        call_data = call.data
-        extra_data = call_data.get("data") if isinstance(call_data.get("data"), dict) else {}
-
-        camera_entity = call_data.get("camera") or extra_data.get("camera") or call_data.get("camera_entity") or extra_data.get("camera_entity")
-        if not camera_entity and call_data.get("entity_id") and str(call_data.get("entity_id")).startswith("camera."):
-            camera_entity = call_data.get("entity_id")
-
-        if camera_entity and not file_path:
-            try:
-                from homeassistant.components.camera import async_get_image
-                image_data = await async_get_image(hass, camera_entity)
-                if image_data and image_data.content:
-                    import tempfile
-                    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tf:
-                        tf.write(image_data.content)
-                        file_path = tf.name
-            except Exception as err:
-                _LOGGER.error("ADLOS_REST: Failed to snapshot camera '%s': %s", camera_entity, err)
-
-        image_url = None
-        attachment = None
-        raw_img = call_data.get("image") or extra_data.get("image") or call_data.get("url") or extra_data.get("url")
-
-        if camera_entity:
-            proxy_url = f"/api/camera_proxy/{camera_entity}"
-            image_url = proxy_url
-            attachment = {"type": "image", "url": proxy_url, "camera": camera_entity}
-        elif raw_img:
-            image_url = str(raw_img).strip()
-            attachment = {"type": "image", "url": image_url}
-        elif file_path:
-            image_url = file_path
-            attachment = {"type": "image", "url": file_path}
-
-        msg_id = call_data.get("id") or extra_data.get("id") or f"ha_{int(time.time() * 1000)}_{secrets.token_hex(4)}"
-        now_ts = int(time.time() * 1000)
-
-        if not target_rooms:
-            _LOGGER.warning("ADLOS: Cannot send photo - no valid private target room resolved")
-            return
-
-        # Primary room and encryption for SSE and backlog
-        primary_room = target_rooms[0]
-        sse_key_bytes = _resolve_room_key(primary_room, custom_key)
-        encrypted_text = encrypt_text(text, key_bytes=sse_key_bytes, room_id=primary_room) if text else ""
-
-        store = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
-        if store:
-            payload = {
-                "id": msg_id,
-                "room": primary_room,
-                "sender": "Home Assistant",
-                "type": "image",
-                "title": extra_fields.get("title") or "Home Assistant",
-                "message": encrypted_text,
-                "text": encrypted_text,
-                "targets": extra_fields.get("targets", []),
-                "target": extra_fields.get("target"),
-                "timestamp": now_ts,
-            }
-            if image_url:
-                payload["image"] = image_url
-            if attachment:
-                payload["attachment"] = attachment
-            if camera_entity:
-                payload["camera"] = camera_entity
-
-            messages_list = store.setdefault("messages", [])
-            messages_list.append(payload)
-            if len(messages_list) > 50:
-                del messages_list[:-50]
-
-            subscribers = list(store.get("subscribers", set()))
-            if subscribers:
-                sse_data = f"data: {json.dumps(payload)}\n\n".encode("utf-8")
-                for resp in subscribers:
-                    try:
-                        asyncio.create_task(resp.write(sse_data))
-                    except Exception as err:
-                        _LOGGER.debug("Error writing to SSE subscriber: %s", err)
-
-        tasks = []
-        for room in target_rooms:
-            if file_path and os.path.exists(file_path):
-                tasks.append(_async_send_file_to_room(room, text, file_path, custom_key, extra_fields))
-            else:
-                if file_path:
-                    _LOGGER.warning("ADLOS_REST: File path '%s' not found for send_photo. Sending as text message instead.", file_path)
-                tasks.append(_async_send_text_to_room(room, text, custom_key, extra_fields))
-
-        if tasks:
-            try:
-                await asyncio.gather(*tasks, return_exceptions=True)
-            except Exception as err:
-                _LOGGER.error("ADLOS_REST: Exception during background sending: %s", err)
-
-    async def async_register_user_entry(contact_id: str, user_name: str | None = None) -> list[str]:
-        cid = (contact_id or "").strip()
-        if not cid:
-            return []
-        name = (user_name or "").strip() or cid
-
-        reg_users = hass.data[DOMAIN][entry.entry_id].setdefault("registered_users", {})
-        reg_users[cid] = {
-            "contact_id": cid,
-            "name": name,
-        }
-
-        cur_str = entry.options.get(CONF_TARGET_CONTACTS, entry.data.get(CONF_TARGET_CONTACTS, ""))
-        cur_list = [c.strip() for c in re.split(r'[,;\s]+', cur_str) if c.strip()]
-        if cid not in cur_list:
-            cur_list.append(cid)
-
-        new_options = dict(entry.options)
-        new_options[CONF_TARGET_CONTACTS] = ", ".join(cur_list)
-        new_options["registered_users"] = reg_users
-        hass.config_entries.async_update_entry(entry, options=new_options)
-        _LOGGER.info("ADLOS_REGISTRATION: Registered user '%s' (%s). Total registered users: %s", name, cid, len(reg_users))
-        return cur_list
-
-    async def async_unregister_user_entry(contact_id: str) -> None:
-        cid = (contact_id or "").strip()
-        if not cid:
-            return
-        reg_users = hass.data[DOMAIN][entry.entry_id].setdefault("registered_users", {})
-        reg_users.pop(cid, None)
-
-        cur_str = entry.options.get(CONF_TARGET_CONTACTS, entry.data.get(CONF_TARGET_CONTACTS, ""))
-        cur_list = [c.strip() for c in re.split(r'[,;\s]+', cur_str) if c.strip()]
-        if cid in cur_list:
-            cur_list.remove(cid)
-
-        new_options = dict(entry.options)
-        new_options[CONF_TARGET_CONTACTS] = ", ".join(cur_list)
-        new_options["registered_users"] = reg_users
-        hass.config_entries.async_update_entry(entry, options=new_options)
-        _LOGGER.info("ADLOS_REGISTRATION: Unregistered user contact ID: %s", cid)
-
-    # Register Webhooks for QR code automatic pairing, user registration, and SSE stream/history
-    webhook_ids = [f"adlos_pairing_{entry.entry_id}", "adlos_pairing", "adlos_register_user", "adlos_stream"]
-
-    async def handle_pairing_webhook(hass: HomeAssistant, webhook_id: str, request: aiohttp.web.Request) -> aiohttp.web.StreamResponse | aiohttp.web.Response:
-        store = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
-
-        # Handle GET requests: SSE Stream or Poll/History
-        if request.method == "GET":
-            mode = request.query.get("mode", "").lower()
-            if mode in ("poll", "history"):
-                return aiohttp.web.json_response({
-                    "status": "ok",
-                    "messages": list(store.get("messages", [])),
-                    "registered_users": store.get("registered_users", {}),
-                    "bot_id": bot_id,
-                    "room_id": default_room,
-                })
-
-            # SSE Event-Stream
-            response = aiohttp.web.StreamResponse(
-                status=200,
-                reason="OK",
-                headers={
-                    "Content-Type": "text/event-stream",
-                    "Cache-Control": "no-cache",
-                    "Connection": "keep-alive",
-                    "Access-Control-Allow-Origin": "*",
-                    "X-Accel-Buffering": "no",
-                }
-            )
-            await response.prepare(request)
-
-            subscribers_set = store.setdefault("subscribers", set())
-            subscribers_set.add(response)
-            _LOGGER.debug("ADLOS_SSE: New subscriber connected (%s active)", len(subscribers_set))
-
-            connect_payload = {
-                "type": "connected",
-                "bot_id": bot_id,
-                "room": default_room,
-                "timestamp": int(time.time() * 1000),
-            }
-            try:
-                await response.write(f"data: {json.dumps(connect_payload)}\n\n".encode("utf-8"))
-            except Exception as err:
-                _LOGGER.debug("ADLOS_SSE: Error sending connect event: %s", err)
-                subscribers_set.discard(response)
-                return response
-
-            # Keep-alive loop with ping every 15 seconds
-            try:
-                while True:
-                    await asyncio.sleep(15)
-                    await response.write(b": ping\n\n")
-            except (asyncio.CancelledError, ConnectionResetError, aiohttp.ClientError, Exception) as err:
-                _LOGGER.debug("ADLOS_SSE: Subscriber disconnected: %s", err)
-            finally:
-                subscribers_set.discard(response)
-                _LOGGER.debug("ADLOS_SSE: Subscriber cleaned up (%s active)", len(subscribers_set))
-            return response
-
-        # Handle POST requests
-        try:
-            body = await request.json()
-        except Exception:
-            body = {}
-        msg_type = str(body.get("type") or "").strip()
-        contact_id = str(body.get("contact_id") or body.get("contactId") or body.get("user_id") or body.get("id") or "").strip()
-        user_name = str(body.get("name") or body.get("user_name") or body.get("username") or "").strip()
-
-        if msg_type == "unregister_user":
-            if contact_id:
-                await async_unregister_user_entry(contact_id)
-                return aiohttp.web.json_response({"status": "ok", "message": f"User {contact_id} unregistered"})
-            return aiohttp.web.json_response({"status": "error", "message": "Missing contact_id"}, status=400)
-
-        if contact_id:
-            contacts = await async_register_user_entry(contact_id, user_name)
-            reg_users = store.get("registered_users", {})
-            return aiohttp.web.json_response({
-                "status": "ok",
-                "message": f"User {contact_id} ({user_name}) successfully registered in Home Assistant",
-                "contact_id": contact_id,
-                "name": user_name,
-                "total_registered": len(reg_users),
-                "bot_id": bot_id,
-                "room_id": derive_room_id(bot_id, contact_id),
-            })
-        return aiohttp.web.json_response({"status": "error", "message": "Missing contact_id"}, status=400)
-
-    for wid in webhook_ids:
-        try:
-            from homeassistant.components import webhook
-            webhook.async_register(
-                hass,
-                DOMAIN,
-                f"Adlos Pairing ({wid})",
-                wid,
-                handle_pairing_webhook,
-                allowed_methods={"GET", "POST"},
-            )
-        except Exception as err:
-            _LOGGER.debug("Could not register webhook %s: %s", wid, err)
+        """Service alias to send photo."""
+        await send_message(call)
 
     async def register_user(call: ServiceCall):
-        """Service to register a user contact_id into target_contacts and registered_users."""
-        contact_id = str(call.data.get("contact_id") or call.data.get("id") or call.data.get("target") or "").strip()
-        user_name = str(call.data.get("name") or call.data.get("user_name") or "").strip()
+        """Registers a user contact manually."""
+        contact_id = str(call.data.get("contact_id") or call.data.get("id") or "").strip()
+        user_name = str(call.data.get("name") or call.data.get("user_name") or "").strip() or contact_id
         if contact_id:
-            await async_register_user_entry(contact_id, user_name)
+            room_key = str(call.data.get("room_key") or call.data.get("key") or "").strip()
+            cur_paired = dict(hass.data[DOMAIN][entry.entry_id].get(CONF_PAIRED_USERS, {}))
+            cur_paired[contact_id] = {
+                "contact_id": contact_id,
+                "name": user_name,
+                "room_key": room_key,
+                "room_id": derive_room_id(contact_id, bot_id),
+            }
+            new_options = dict(entry.options)
+            new_options[CONF_PAIRED_USERS] = cur_paired
+            hass.config_entries.async_update_entry(entry, options=new_options)
+            hass.data[DOMAIN][entry.entry_id][CONF_PAIRED_USERS] = cur_paired
+            _LOGGER.info("ADLOS: Manually registered user '%s' (%s)", user_name, contact_id)
 
     async def unregister_user(call: ServiceCall):
-        """Service to remove a user contact_id from target_contacts and registered_users."""
-        contact_id = str(call.data.get("contact_id") or call.data.get("id") or call.data.get("target") or "").strip()
+        """Unregisters a user contact."""
+        contact_id = str(call.data.get("contact_id") or call.data.get("id") or "").strip()
         if contact_id:
-            await async_unregister_user_entry(contact_id)
-
-    import voluptuous as vol
-    from homeassistant.helpers import config_validation as cv
+            cur_paired = dict(hass.data[DOMAIN][entry.entry_id].get(CONF_PAIRED_USERS, {}))
+            cur_paired.pop(contact_id, None)
+            new_options = dict(entry.options)
+            new_options[CONF_PAIRED_USERS] = cur_paired
+            hass.config_entries.async_update_entry(entry, options=new_options)
+            hass.data[DOMAIN][entry.entry_id][CONF_PAIRED_USERS] = cur_paired
+            _LOGGER.info("ADLOS: Unregistered user contact ID: %s", contact_id)
 
     send_message_schema = vol.Schema({
         vol.Optional("message"): vol.Any(cv.string, None),
@@ -795,23 +366,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         vol.Optional("camera_entity"): vol.Any(cv.string, None),
         vol.Optional("image"): vol.Any(cv.string, None),
         vol.Optional("path"): vol.Any(cv.string, None),
-        vol.Optional("url"): vol.Any(cv.string, None),
-        vol.Optional("encryption_key"): vol.Any(cv.string, None),
-        vol.Optional("id"): vol.Any(cv.string, None),
-    }, extra=vol.ALLOW_EXTRA)
-
-    send_photo_schema = vol.Schema({
-        vol.Optional("message"): vol.Any(cv.string, None),
-        vol.Optional("text"): vol.Any(cv.string, None),
-        vol.Optional("title"): vol.Any(cv.string, None),
-        vol.Optional("path"): vol.Any(cv.string, None),
-        vol.Optional("image"): vol.Any(cv.string, None),
-        vol.Optional("url"): vol.Any(cv.string, None),
-        vol.Optional("camera"): vol.Any(cv.string, None),
-        vol.Optional("camera_entity"): vol.Any(cv.string, None),
-        vol.Optional("target"): vol.Any(cv.string, list, None),
-        vol.Optional("targets"): vol.Any(cv.string, list, None),
-        vol.Optional("room"): vol.Any(cv.string, None),
         vol.Optional("encryption_key"): vol.Any(cv.string, None),
         vol.Optional("id"): vol.Any(cv.string, None),
     }, extra=vol.ALLOW_EXTRA)
@@ -819,49 +373,45 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     register_user_schema = vol.Schema({
         vol.Required("contact_id"): cv.string,
         vol.Optional("name"): vol.Any(cv.string, None),
+        vol.Optional("room_key"): vol.Any(cv.string, None),
     }, extra=vol.ALLOW_EXTRA)
 
     unregister_user_schema = vol.Schema({
         vol.Required("contact_id"): cv.string,
     }, extra=vol.ALLOW_EXTRA)
 
-    # Register services under chad_app domain
-    hass.services.async_register(DOMAIN, "send_message", send_message, schema=send_message_schema)
-    hass.services.async_register(DOMAIN, "send_photo", send_photo, schema=send_photo_schema)
-    hass.services.async_register(DOMAIN, "register_user", register_user, schema=register_user_schema)
-    hass.services.async_register(DOMAIN, "unregister_user", unregister_user, schema=unregister_user_schema)
-
-    # Register aliases so adlos.send_message, adlos.register_user, etc. work out of the box in automations
-    for alias_domain in ["adlos", "adloshacs"]:
+    # Register services under chad_app and adlos aliases
+    for domain_name in [DOMAIN, "adlos", "adloshacs"]:
         try:
-            hass.services.async_register(alias_domain, "send_message", send_message, schema=send_message_schema)
-            hass.services.async_register(alias_domain, "send_photo", send_photo, schema=send_photo_schema)
-            hass.services.async_register(alias_domain, "register_user", register_user, schema=register_user_schema)
-            hass.services.async_register(alias_domain, "unregister_user", unregister_user, schema=unregister_user_schema)
+            hass.services.async_register(domain_name, "send_message", send_message, schema=send_message_schema)
+            hass.services.async_register(domain_name, "send_photo", send_photo, schema=send_message_schema)
+            hass.services.async_register(domain_name, "register_user", register_user, schema=register_user_schema)
+            hass.services.async_register(domain_name, "unregister_user", unregister_user, schema=unregister_user_schema)
         except Exception:
             pass
+
+    # Start PocketBase background listener
+    listener = PocketBaseListener(
+        hass=hass,
+        entry=entry,
+        session=session,
+        send_callback=_async_send_text_to_room,
+    )
+    hass.data[DOMAIN][entry.entry_id]["listener"] = listener
+    await listener.start()
 
     # Forward platform setups (notify & image QR code entity)
     await hass.config_entries.async_forward_entry_setups(entry, ["notify", "image"])
 
-    # Create Pairing QR Code and Notification
+    # Create Pairing QR Code Notification in Home Assistant
     try:
-        from homeassistant.components import persistent_notification
         import qrcode
-        import time
-
-        ha_url = str(entry.data.get("ha_url") or "https://homey.org").strip().rstrip("/")
-        if not ha_url.startswith("http://") and not ha_url.startswith("https://"):
-            ha_url = f"https://{ha_url}"
-        ha_token = str(entry.data.get(CONF_TOKEN) or "").strip()
-
         pairing_payload = json.dumps({
-            "type": "adlos_ha",
-            "url": ha_url,
-            "token": ha_token,
-            "webhook_id": "adlos_pairing",
+            "action": "adlos_contact",
+            "id": bot_id,
+            "name": bot_name,
+            "home_server": server_url,
         })
-
         img = qrcode.make(pairing_payload)
         www_dir = hass.config.path("www")
         os.makedirs(www_dir, exist_ok=True)
@@ -870,11 +420,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         notification_msg = (
             f"### 📱 Adlos App Kopplung\n\n"
-            f"Scanne diesen QR-Code mit der Adlos-App:\n\n"
+            f"Scanne diesen QR-Code mit der Adlos-App (**'Kontakt hinzufügen'**):\n\n"
             f"![QR-Code](/local/adlos_qr.png?t={int(time.time())})\n\n"
-            f"**Home Assistant URL:** `{ha_url}`\n\n"
-            f"**Token:** `{ha_token}`\n\n"
-            f"**Kopplungs-Daten:**\n```json\n{pairing_payload}\n```"
+            f"- **Bot-ID:** `{bot_id}`\n"
+            f"- **Name:** `{bot_name}`\n"
+            f"- **Server:** `{server_url}`\n\n"
+            f"```json\n{pairing_payload}\n```"
         )
         persistent_notification.async_create(
             hass,
@@ -898,14 +449,12 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
-    # Unregister webhooks
-    webhook_ids = [f"adlos_pairing_{entry.entry_id}", "adlos_pairing", "adlos_register_user", "adlos_stream"]
-    for wid in webhook_ids:
-        try:
-            from homeassistant.components import webhook
-            webhook.async_unregister(hass, wid)
-        except Exception:
-            pass
+    entry_store = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
+    listener: PocketBaseListener | None = entry_store.get("listener")
+    if listener:
+        await listener.stop()
+
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, ["notify", "image"])
 
     hass.data[DOMAIN].pop(entry.entry_id, None)
     if not hass.data[DOMAIN]:
@@ -915,15 +464,5 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     hass.services.async_remove(d, s)
                 except Exception:
                     pass
-        try:
-            hass.services.async_remove("notify", "adlos")
-        except Exception:
-            pass
-        try:
-            hass.services.async_remove("notify", "chad_app")
-        except Exception:
-            pass
 
-    return True
-
-
+    return unload_ok

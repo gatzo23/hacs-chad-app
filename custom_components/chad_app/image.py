@@ -11,9 +11,19 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, CONF_HA_URL, CONF_TOKEN
+from .const import (
+    DOMAIN,
+    DEFAULT_SERVER_URL,
+    DEFAULT_BOT_NAME,
+    CONF_SERVER_URL,
+    CONF_BOT_NAME,
+    CONF_BOT_ID,
+    CONF_URL,
+)
+from .pocketbase_listener import get_clean_base_url
 
 _LOGGER = logging.getLogger(__name__)
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -40,16 +50,30 @@ class AdlosQRImageEntity(ImageEntity):
     def image(self) -> bytes | None:
         """Return bytes of image."""
         try:
-            ha_url = str(self._entry.data.get(CONF_HA_URL) or "https://homey.org").strip().rstrip("/")
-            if not ha_url.startswith("http://") and not ha_url.startswith("https://"):
-                ha_url = f"https://{ha_url}"
-            ha_token = str(self._entry.data.get(CONF_TOKEN) or "").strip()
+            bot_id = (
+                self._entry.options.get(CONF_BOT_ID)
+                or self._entry.data.get(CONF_BOT_ID)
+                or "homeassistant_bot"
+            )
+            bot_name = (
+                self._entry.options.get(CONF_BOT_NAME)
+                or self._entry.data.get(CONF_BOT_NAME)
+                or DEFAULT_BOT_NAME
+            )
+            raw_url = (
+                self._entry.options.get(CONF_SERVER_URL)
+                or self._entry.data.get(CONF_SERVER_URL)
+                or self._entry.options.get(CONF_URL)
+                or self._entry.data.get(CONF_URL)
+                or DEFAULT_SERVER_URL
+            )
+            server_url = get_clean_base_url(raw_url)
 
             payload = json.dumps({
-                "type": "adlos_ha",
-                "url": ha_url,
-                "token": ha_token,
-                "webhook_id": "adlos_pairing",
+                "action": "adlos_contact",
+                "id": bot_id,
+                "name": bot_name,
+                "home_server": server_url,
             })
 
             img = qrcode.make(payload)
