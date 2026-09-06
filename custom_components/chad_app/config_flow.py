@@ -103,11 +103,12 @@ class ChadAppConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         bot_name = self._user_input.get(CONF_BOT_NAME, DEFAULT_BOT_NAME)
         server_url = self._user_input.get(CONF_SERVER_URL, DEFAULT_SERVER_URL)
 
-        # Native Adlos contact QR code format
+        # Standard Adlos bot / service QR code format
         qr_payload = json.dumps({
-            "action": "adlos_contact",
+            "action": "adlos_bot",
             "id": bot_id,
             "name": bot_name,
+            "url": server_url,
             "home_server": server_url,
         })
 
@@ -193,9 +194,10 @@ class ChadAppOptionsFlowHandler(config_entries.OptionsFlow):
         )
 
         qr_payload = json.dumps({
-            "action": "adlos_contact",
+            "action": "adlos_bot",
             "id": bot_id,
             "name": bot_name,
+            "url": server_url,
             "home_server": server_url,
         })
         local_url, _ = generate_qr_code(self.hass, qr_payload)

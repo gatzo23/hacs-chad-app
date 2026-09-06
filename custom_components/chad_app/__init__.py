@@ -407,9 +407,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     try:
         import qrcode
         pairing_payload = json.dumps({
-            "action": "adlos_contact",
+            "action": "adlos_bot",
             "id": bot_id,
             "name": bot_name,
+            "url": server_url,
             "home_server": server_url,
         })
         img = qrcode.make(pairing_payload)

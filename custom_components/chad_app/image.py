@@ -70,9 +70,10 @@ class AdlosQRImageEntity(ImageEntity):
             server_url = get_clean_base_url(raw_url)
 
             payload = json.dumps({
-                "action": "adlos_contact",
+                "action": "adlos_bot",
                 "id": bot_id,
                 "name": bot_name,
+                "url": server_url,
                 "home_server": server_url,
             })
 
