@@ -30,7 +30,7 @@ Kopiere den Ordner `custom_components/chad_app` in dein Home Assistant Verzeichn
 
 1. Gehe in Home Assistant zu **Einstellungen -> Geräte & Dienste -> Integration hinzufügen**.
 2. Wähle **Adlos** aus.
-3. Bestätige den Server (Standard: `https://pocket.nextbee.org`) und den Bot-Namen (`Home Assistant`).
+3. Bestätige den Server (Standard: `https://pb.adlos.de`) und den Bot-Namen (`Home Assistant`).
 4. Es erscheint der **QR-Code**:
    - Öffne die **Adlos App** auf deinem Smartphone.
    - Tippe auf **Kontakt hinzufügen -> QR-Code scannen**.

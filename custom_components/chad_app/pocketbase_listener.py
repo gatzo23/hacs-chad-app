@@ -34,7 +34,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def get_clean_base_url(raw_url: str | None) -> str:
-    """Normalizes any PocketBase URL to base domain URL e.g. https://pocket.nextbee.org."""
+    """Normalizes any PocketBase URL to base domain URL e.g. https://pb.adlos.de."""
     url = (raw_url or "").strip()
     if not url:
         return DEFAULT_SERVER_URL

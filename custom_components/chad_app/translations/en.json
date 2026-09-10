@@ -5,7 +5,7 @@
         "title": "Set up Adlos",
         "description": "Configure the server and name for Home Assistant in the Adlos App.",
         "data": {
-          "server_url": "PocketBase Server URL (Default: https://pocket.nextbee.org)",
+          "server_url": "PocketBase Server URL (Default: https://pb.adlos.de)",
           "bot_name": "Bot / Contact Name (Default: Home Assistant)"
         }
       },

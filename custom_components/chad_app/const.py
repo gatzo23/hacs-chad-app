@@ -1,6 +1,6 @@
 DOMAIN = "chad_app"
 
-DEFAULT_SERVER_URL = "https://pocket.nextbee.org"
+DEFAULT_SERVER_URL = "https://pb.adlos.de"
 DEFAULT_BOT_NAME = "Home Assistant"
 
 CONF_SERVER_URL = "server_url"
